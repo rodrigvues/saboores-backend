@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Base fields
+// id        String   @id @default(cuid())
+// createdAt DateTime @default(now())
+// updatedAt DateTime @updatedAt
+
+enum EventStatus {
+  DRAFT
+  OPEN
+  CLOSED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  EXPIRED
+}
+
+enum PaymentStatus {
+  WAITING_PAYMENT
+  PAID
+  UNPAID
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+model User {
+  id            String   @id @default(cuid())
+  name          String
+  surname       String
+  email         String   @unique
+  role          Role     @default(USER)
+  orders        Order[]
+  createdTypes  Type[]
+  createdEvents Event[]
+  createdAt     DateTime @default(now())
+}
+
+model Type {
+  id              String   @id @default(cuid())
+  name            String
+  description     String?
+  createdByUserId String
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  createdByUser User    @relation(fields: [createdByUserId], references: [id])
+  events        Event[]
+  items         Item[]
+
+  @@index([createdByUserId])
+}
+
+model Event {
+  id              String      @id @default(cuid())
+  name            String
+  typeId          String
+  startsAt        DateTime
+  endsAt          DateTime
+  status          EventStatus @default(DRAFT)
+  createdByUserId String
+  createdAt       DateTime    @default(now())
+
+  type          Type    @relation(fields: [typeId], references: [id])
+  createdByUser User    @relation(fields: [createdByUserId], references: [id])
+  orders        Order[]
+
+  @@index([typeId])
+  @@index([createdByUserId])
+}
+
+model Item {
+  id        String   @id @default(cuid())
+  typeId    String
+  name      String
+  price     Decimal
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  type       Type        @relation(fields: [typeId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([typeId])
+}
+
+model Order {
+  id            String        @id @default(cuid())
+  userId        String
+  eventId       String
+  status        OrderStatus   @default(PENDING)
+  paymentStatus PaymentStatus @default(WAITING_PAYMENT)
+  createdAt     DateTime      @default(now())
+  confirmedAt   DateTime?
+  cancelledAt   DateTime?
+
+  user       User        @relation(fields: [userId], references: [id])
+  event      Event       @relation(fields: [eventId], references: [id])
+  orderItems OrderItem[]
+
+  @@index([userId])
+  @@index([eventId])
+}
+
+model OrderItem {
+  id        String   @id @default(cuid())
+  orderId   String
+  itemId    String
+  quantity  Int
+  unitPrice Decimal
+  createdAt DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  item  Item  @relation(fields: [itemId], references: [id])
+
+  @@index([orderId])
+  @@index([itemId])
+}
