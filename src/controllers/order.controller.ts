@@ -1,9 +1,5 @@
 import type { Request, Response } from "express";
-import {
-  cancelOrderSchema,
-  createOrderSchema,
-  listOrdersQuerySchema,
-} from "../schemas/order.schema.js";
+import { createOrderSchema } from "../schemas/order.schema.js";
 import { orderService } from "../services/order.service.js";
 import { HttpError } from "../utils/http-error.js";
 
@@ -19,6 +15,10 @@ function handleError(error: unknown, res: Response) {
 
 class OrderController {
   async create(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+
     const parsedBody = createOrderSchema.safeParse(req.body);
 
     if (!parsedBody.success) {
@@ -28,7 +28,11 @@ class OrderController {
     }
 
     try {
-      const order = await orderService.create(parsedBody.data);
+      const order = await orderService.create({
+        userId: req.user.id,
+        eventId: parsedBody.data.eventId,
+        items: parsedBody.data.items,
+      });
 
       return res.status(201).json(order);
     } catch (error) {
@@ -37,16 +41,12 @@ class OrderController {
   }
 
   async index(req: Request, res: Response) {
-    const parsedQuery = listOrdersQuerySchema.safeParse(req.query);
-
-    if (!parsedQuery.success) {
-      return res.status(400).json({
-        message: "Erro interno do sistema.",
-      });
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
     }
 
     try {
-      const orders = await orderService.getByUserId(parsedQuery.data.userId);
+      const orders = await orderService.getByUserId(req.user.id);
 
       return res.json(orders);
     } catch (error) {
@@ -55,16 +55,12 @@ class OrderController {
   }
 
   async cancel(req: Request, res: Response) {
-    const parsedBody = cancelOrderSchema.safeParse(req.body);
-
-    if (!parsedBody.success) {
-      return res.status(400).json({
-        message: "Erro interno do sistema.",
-      });
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
     }
 
     try {
-      const order = await orderService.cancel(req.params.id as string, parsedBody.data.userId);
+      const order = await orderService.cancel(req.params.id as string, req.user.id);
 
       return res.json(order);
     } catch (error) {

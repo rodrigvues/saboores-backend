@@ -1,7 +1,7 @@
 import { z } from "zod";
 
+// `userId` não vem mais do cliente — é derivado do token (req.user.id).
 export const createOrderSchema = z.object({
-  userId: z.string().trim().min(1),
   eventId: z.string().trim().min(1),
   items: z
     .array(
@@ -11,12 +11,4 @@ export const createOrderSchema = z.object({
       }),
     )
     .min(1),
-});
-
-export const listOrdersQuerySchema = z.object({
-  userId: z.string().trim().min(1),
-});
-
-export const cancelOrderSchema = z.object({
-  userId: z.string().trim().min(1),
 });
