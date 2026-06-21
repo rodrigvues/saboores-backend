@@ -33,21 +33,36 @@ enum PaymentStatus {
 
 enum Role {
   USER
+  ORGANIZER
   ADMIN
 }
 
 model User {
-  id            String   @id @default(cuid())
-  name          String
-  surname       String
-  email         String   @unique
-  passwordHash  String?
-  role          Role     @default(USER)
-  orders        Order[]
-  createdTypes  Type[]
-  createdEvents Event[]
-  refreshTokens RefreshToken[]
-  createdAt     DateTime @default(now())
+  id             String               @id @default(cuid())
+  name           String
+  surname        String
+  email          String               @unique
+  passwordHash   String?
+  role           Role                 @default(USER)
+  // F3.7 — soft-disable (conta desativada não loga e tem sessões revogadas)
+  disabledAt     DateTime?
+  // F4.1 — identidade enriquecida (todos opcionais)
+  displayName    String? // "apelido" usado nas telas sociais
+  avatarUrl      String? // URL pública/assinada do avatar no Supabase Storage
+  bio            String?
+  team           String? // "time/setor" (F4.1 RN1)
+  orders         Order[]
+  createdTypes   Type[]
+  createdEvents  Event[]
+  refreshTokens  RefreshToken[]
+  // F3.1 — vínculos de acesso a eventos (organizer)
+  eventLinks     EventOrganizer[]     @relation("OrganizerLinks")
+  grantedLinks   EventOrganizer[]     @relation("GrantedLinks")
+  // F3.5 — tokens de redefinição de senha
+  passwordResets PasswordResetToken[]
+  // F3.1/F3.2/F3.7 — ações de auditoria que este usuário executou
+  auditActions   AuditLog[]           @relation("AuditActor")
+  createdAt      DateTime             @default(now())
 }
 
 model RefreshToken {
@@ -90,9 +105,10 @@ model Event {
   createdByUserId String
   createdAt       DateTime    @default(now())
 
-  type          Type    @relation(fields: [typeId], references: [id])
-  createdByUser User    @relation(fields: [createdByUserId], references: [id])
+  type          Type             @relation(fields: [typeId], references: [id])
+  createdByUser User             @relation(fields: [createdByUserId], references: [id])
   orders        Order[]
+  organizers    EventOrganizer[] // F3.1 — quem pode gerenciar este evento
 
   @@index([typeId])
   @@index([createdByUserId])
@@ -143,4 +159,51 @@ model OrderItem {
 
   @@index([orderId])
   @@index([itemId])
+}
+
+// F3.1/F3.8 — acesso explícito de um ORGANIZER a um evento.
+// Padrão: o evento que ele criou; pode ganhar acesso ao ser convidado.
+model EventOrganizer {
+  id              String   @id @default(cuid())
+  eventId         String
+  userId          String
+  createdByUserId String? // quem concedeu o vínculo (auditoria)
+  createdAt       DateTime @default(now())
+
+  event     Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user      User  @relation("OrganizerLinks", fields: [userId], references: [id], onDelete: Cascade)
+  grantedBy User? @relation("GrantedLinks", fields: [createdByUserId], references: [id])
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@index([eventId])
+}
+
+// F3.5 — redefinição de senha ("esqueci a senha"). Guarda só o hash do token.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// F3.1 RN10 / F3.2 / F3.7 — auditoria mínima de ações sensíveis.
+model AuditLog {
+  id        String   @id @default(cuid())
+  actorId   String // quem fez
+  action    String // EVENT_ORGANIZER_INVITE | EVENT_ORGANIZER_REMOVE | USER_STATUS_CHANGE | USER_PASSWORD_RESET
+  targetId  String? // usuário/recurso afetado
+  metadata  Json? // de→para, eventId, etc.
+  createdAt DateTime @default(now())
+
+  actor User @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([actorId])
+  @@index([targetId])
 }

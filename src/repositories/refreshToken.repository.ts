@@ -31,6 +31,17 @@ class RefreshTokenRepository {
       data: { revokedAt: new Date() },
     });
   }
+
+  /**
+   * Derruba todas as sessões ativas do usuário EXCETO uma (F3.4: trocar senha
+   * mantém a sessão atual e revoga as demais).
+   */
+  async revokeAllForUserExcept(userId: string, exceptId: string) {
+    return prisma.refreshToken.updateMany({
+      where: { userId, revokedAt: null, id: { not: exceptId } },
+      data: { revokedAt: new Date() },
+    });
+  }
 }
 
 export const refreshTokenRepository = new RefreshTokenRepository();

@@ -23,6 +23,14 @@ class EventRepository {
     });
   }
 
+  async existsById(id: string) {
+    const event = await prisma.event.findUnique({
+      where: { id },
+      select: { id: true },
+    });
+    return event !== null;
+  }
+
   async findById(id: string) {
     return prisma.event.findUnique({
       where: {

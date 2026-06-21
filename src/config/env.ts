@@ -21,6 +21,19 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default(""),
   /** Força o atributo Secure do cookie. Default: liga em produção. */
   COOKIE_SECURE: z.string().optional(),
+  // ── F3.5: e-mail transacional (Resend) ──────────────────────
+  // SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (Resend). Opcionais para o app
+  // subir em dev; em produção devem ser definidos (ver checagem abaixo).
+  RESEND_API_KEY: z.string().optional(),
+  EMAIL_FROM: z.string().default("Saboores <onboarding@resend.dev>"),
+  /** Base do frontend p/ montar o link de redefinição (F3.5). */
+  APP_URL: z.string().default("http://localhost:5173"),
+  // ── F4.1: avatar (Supabase Storage) ─────────────────────────
+  // SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (Supabase Storage). Opcionais
+  // em dev; sem elas o upload de avatar retorna erro claro (resto funciona).
+  SUPABASE_URL: z.string().optional(),
+  SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
+  SUPABASE_AVATAR_BUCKET: z.string().default("avatars"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -58,4 +71,21 @@ export const env = {
     raw.COOKIE_SECURE !== undefined
       ? raw.COOKIE_SECURE === "true"
       : raw.NODE_ENV === "production",
+  // F3.5 — e-mail transacional.
+  resendApiKey: raw.RESEND_API_KEY,
+  emailFrom: raw.EMAIL_FROM,
+  appUrl: raw.APP_URL.replace(/\/+$/, ""),
+  // F4.1 — avatar (Supabase Storage).
+  supabaseUrl: raw.SUPABASE_URL,
+  supabaseServiceRoleKey: raw.SUPABASE_SERVICE_ROLE_KEY,
+  supabaseAvatarBucket: raw.SUPABASE_AVATAR_BUCKET,
 } as const;
+
+// Em produção, e-mail é obrigatório (fluxo "esqueci a senha"). Em dev, o serviço
+// degrada para console — ver src/services/email.service.ts.
+if (env.isProd && !env.resendApiKey) {
+  console.warn(
+    "⚠️  RESEND_API_KEY ausente em produção: o envio de e-mail (reset de senha) " +
+      "ficará indisponível. Ver docs/CONFIGURACAO-NECESSARIA.md (Resend).",
+  );
+}

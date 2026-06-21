@@ -52,6 +52,16 @@ class EventController {
     }
   }
 
+  /** GET /events/:id/participants — lista mínima de participantes (F4.2). */
+  async participants(req: Request, res: Response) {
+    try {
+      const participants = await eventService.getParticipants(req.params.id as string);
+
+      return res.json(participants);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
 }
 
 export const eventController = new EventController();
