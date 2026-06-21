@@ -8,6 +8,7 @@ import {
 } from "../dtos/order.dto.js";
 import { orderRepository } from "../repositories/order.repository.js";
 import { userRepository } from "../repositories/user.repository.js";
+import { rankingService } from "./ranking.service.js";
 import { HttpError } from "../utils/http-error.js";
 
 type CreateOrderInput = {
@@ -137,6 +138,9 @@ class OrderService {
     }
 
     const confirmedOrder = await orderRepository.confirmPayment(id);
+
+    // F4.3/F4.4 — confirmar pagamento muda as estatísticas: limpa o cache do ranking.
+    rankingService.invalidate();
 
     return toConfirmPaymentDto(confirmedOrder);
   }

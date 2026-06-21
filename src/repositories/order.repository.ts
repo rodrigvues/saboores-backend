@@ -168,6 +168,29 @@ class OrderRepository {
     });
   }
 
+  /**
+   * F4.2 — participantes de um evento (quem pediu). Considera participação ativa:
+   * pedidos PENDING ou CONFIRMED (exclui cancelados/expirados). Distinto por usuário.
+   */
+  async findParticipantsByEventId(eventId: string) {
+    return prisma.order.findMany({
+      where: { eventId, status: { in: ["PENDING", "CONFIRMED"] } },
+      distinct: ["userId"],
+      orderBy: { createdAt: "asc" },
+      select: {
+        user: {
+          select: {
+            id: true,
+            name: true,
+            surname: true,
+            displayName: true,
+            avatarUrl: true,
+          },
+        },
+      },
+    });
+  }
+
   async findManyByEventId(eventId: string) {
     return prisma.order.findMany({
       where: {
