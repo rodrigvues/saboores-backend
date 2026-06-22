@@ -1,4 +1,7 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+
+type Tx = Prisma.TransactionClient | PrismaClient;
 
 class EventOrganizerRepository {
   /** Existe vínculo (eventId, userId)? Base do middleware de autorização. */
@@ -14,8 +17,10 @@ class EventOrganizerRepository {
     eventId: string;
     userId: string;
     createdByUserId?: string | null;
+    tx?: Tx;
   }) {
-    return prisma.eventOrganizer.create({
+    const client = data.tx ?? prisma;
+    return client.eventOrganizer.create({
       data: {
         eventId: data.eventId,
         userId: data.userId,

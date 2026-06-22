@@ -1,6 +1,7 @@
 import type { Request, Response } from "express";
 import { eventService } from "../services/event.service.js";
 import { orderService } from "../services/order.service.js";
+import { createEventSchema, updateEventSchema } from "../schemas/event.schema.js";
 import { HttpError } from "../utils/http-error.js";
 
 function handleError(error: unknown, res: Response) {
@@ -18,6 +19,67 @@ class EventController {
     const events = await eventService.getEvents();
 
     return res.json(events);
+  }
+
+  /** GET /events/managed — rodadas que o usuário gerencia (Parte 1). */
+  async managed(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    try {
+      const events = await eventService.getManaged({
+        userId: req.user.id,
+        isAdmin: req.user.role === "ADMIN",
+      });
+      return res.json(events);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
+
+  /** POST /events — cria a rodada (modo A typeId ou modo B newType). */
+  async create(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    const parsed = createEventSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+    try {
+      const event = await eventService.create({
+        actorId: req.user.id,
+        input: parsed.data,
+      });
+      return res.status(201).json(event);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
+
+  /** PATCH /events/:id — edita a rodada (posse via requireEventAccess). */
+  async update(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    const parsed = updateEventSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+    try {
+      const event = await eventService.update({
+        actorId: req.user.id,
+        eventId: req.params.id as string,
+        input: parsed.data,
+      });
+      return res.json(event);
+    } catch (error) {
+      return handleError(error, res);
+    }
   }
 
   async show(req: Request, res: Response) {

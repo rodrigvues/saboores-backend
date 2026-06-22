@@ -1,5 +1,7 @@
-import type { Role } from "@prisma/client";
+import type { Prisma, PrismaClient, Role } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+
+type Tx = Prisma.TransactionClient | PrismaClient;
 
 class UserRepository {
   async createWithPassword(data: {
@@ -80,9 +82,10 @@ class UserRepository {
     });
   }
 
-  /** Promove/altera o papel (ex.: USER→ORGANIZER ao ser convidado). */
-  async setRole(id: string, role: Role) {
-    return prisma.user.update({
+  /** Promove/altera o papel (ex.: USER→ORGANIZER ao ser convidado/criar evento). */
+  async setRole(id: string, role: Role, tx?: Tx) {
+    const client = tx ?? prisma;
+    return client.user.update({
       where: { id },
       data: { role },
       select: { id: true, role: true },
@@ -180,10 +183,22 @@ class UserRepository {
   }
 
   /** Dados mínimos para guards administrativos (F3.2/F3.7). */
-  async findByIdForAdmin(id: string) {
-    return prisma.user.findUnique({
+  async findByIdForAdmin(id: string, tx?: Tx) {
+    const client = tx ?? prisma;
+    return client.user.findUnique({
       where: { id },
       select: { id: true, role: true, disabledAt: true },
+    });
+  }
+
+  /**
+   * Parte 2 — destinatários do aviso de nova rodada: contas ativas e reais
+   * (com senha definida). Retorna só o necessário para o e-mail.
+   */
+  async findActiveForNotification() {
+    return prisma.user.findMany({
+      where: { disabledAt: null, passwordHash: { not: null } },
+      select: { name: true, email: true },
     });
   }
 

@@ -21,6 +21,7 @@ enum EventStatus {
 enum OrderStatus {
   PENDING
   CONFIRMED
+  DELIVERED
   CANCELLED
   EXPIRED
 }
@@ -104,6 +105,8 @@ model Event {
   status          EventStatus @default(DRAFT)
   createdByUserId String
   createdAt       DateTime    @default(now())
+  // Parte 2 — marca que o e-mail de "rodada começou" já foi enviado (idempotência do cron).
+  startNotifiedAt DateTime?
 
   type          Type             @relation(fields: [typeId], references: [id])
   createdByUser User             @relation(fields: [createdByUserId], references: [id])
@@ -137,6 +140,8 @@ model Order {
   createdAt     DateTime      @default(now())
   confirmedAt   DateTime?
   cancelledAt   DateTime?
+  // Parte 2 — entrega do pedido (status DELIVERED).
+  deliveredAt   DateTime?
 
   user       User        @relation(fields: [userId], references: [id])
   event      Event       @relation(fields: [eventId], references: [id])

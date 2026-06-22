@@ -4,6 +4,7 @@ import cookieParser from "cookie-parser";
 import helmet from "helmet";
 import { env } from "./config/env.js";
 import { routes } from "./routes/index.js";
+import { startJobs } from "./jobs/index.js";
 
 const app = express();
 
@@ -32,4 +33,5 @@ app.use(routes);
 
 app.listen(env.port, () => {
   console.log(`🚀 Server running on port ${env.port}`);
+  startJobs();
 });

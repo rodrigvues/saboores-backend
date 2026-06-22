@@ -24,6 +24,7 @@ type OrderBaseRecord = {
   createdAt: Date;
   confirmedAt?: Date | null;
   cancelledAt?: Date | null;
+  deliveredAt?: Date | null;
   event?: OrderEventRecord;
   orderItems: OrderItemRecord[];
 };
@@ -74,6 +75,7 @@ export type UserOrderDto = {
   createdAt: Date;
   confirmedAt: Date | null;
   cancelledAt: Date | null;
+  deliveredAt: Date | null;
   event: {
     id: string;
     title: string;
@@ -97,6 +99,13 @@ export type ConfirmPaymentDto = {
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   confirmedAt: Date | null;
+};
+
+export type DeliverOrderDto = {
+  id: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  deliveredAt: Date | null;
 };
 
 export type AdminEventOrderDto = {
@@ -184,6 +193,7 @@ export function toUserOrderDto(
     createdAt: order.createdAt,
     confirmedAt: order.confirmedAt ?? null,
     cancelledAt: order.cancelledAt ?? null,
+    deliveredAt: order.deliveredAt ?? null,
     event: {
       id: order.event.id,
       title: order.event.name,
@@ -221,6 +231,20 @@ export function toConfirmPaymentDto(order: {
     status: order.status,
     paymentStatus: order.paymentStatus,
     confirmedAt: order.confirmedAt,
+  };
+}
+
+export function toDeliverOrderDto(order: {
+  id: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  deliveredAt: Date | null;
+}): DeliverOrderDto {
+  return {
+    id: order.id,
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    deliveredAt: order.deliveredAt,
   };
 }
 

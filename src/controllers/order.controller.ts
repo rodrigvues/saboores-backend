@@ -77,6 +77,23 @@ class OrderController {
       return handleError(error, res);
     }
   }
+
+  async deliver(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+
+    try {
+      const order = await orderService.deliver(
+        req.params.id as string,
+        req.user.id,
+      );
+
+      return res.json(order);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
 }
 
 export const orderController = new OrderController();

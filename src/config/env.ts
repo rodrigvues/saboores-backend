@@ -34,6 +34,11 @@ const envSchema = z.object({
   SUPABASE_URL: z.string().optional(),
   SUPABASE_SERVICE_ROLE_KEY: z.string().optional(),
   SUPABASE_AVATAR_BUCKET: z.string().default("avatars"),
+  // ── Parte 2: notificações (jobs / cron) ─────────────────────
+  // SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (Notificações). Liga/desliga o
+  // cron in-process e define sua cadência.
+  JOBS_ENABLED: z.string().optional(),
+  NOTIFY_ROUNDS_CRON: z.string().default("0 */3 * * *"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -79,6 +84,12 @@ export const env = {
   supabaseUrl: raw.SUPABASE_URL,
   supabaseServiceRoleKey: raw.SUPABASE_SERVICE_ROLE_KEY,
   supabaseAvatarBucket: raw.SUPABASE_AVATAR_BUCKET,
+  // Parte 2 — jobs/cron. Default ligado fora de test; JOBS_ENABLED=false desliga.
+  jobsEnabled:
+    raw.JOBS_ENABLED !== undefined
+      ? raw.JOBS_ENABLED === "true"
+      : raw.NODE_ENV !== "test",
+  notifyRoundsCron: raw.NOTIFY_ROUNDS_CRON,
 } as const;
 
 // Em produção, e-mail é obrigatório (fluxo "esqueci a senha"). Em dev, o serviço

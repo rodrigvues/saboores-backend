@@ -1,5 +1,6 @@
 import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
+import { ACTIVE_PARTICIPATION_STATUSES } from "../constants/order.js";
 
 class OrderRepository {
   async findEventForOrder(eventId: string) {
@@ -169,12 +170,12 @@ class OrderRepository {
   }
 
   /**
-   * F4.2 — participantes de um evento (quem pediu). Considera participação ativa:
-   * pedidos PENDING ou CONFIRMED (exclui cancelados/expirados). Distinto por usuário.
+   * F4.2 — participantes de um evento (quem pediu). Considera participação ativa
+   * (PENDING/CONFIRMED/DELIVERED; exclui cancelados/expirados). Distinto por usuário.
    */
   async findParticipantsByEventId(eventId: string) {
     return prisma.order.findMany({
-      where: { eventId, status: { in: ["PENDING", "CONFIRMED"] } },
+      where: { eventId, status: { in: ACTIVE_PARTICIPATION_STATUSES } },
       distinct: ["userId"],
       orderBy: { createdAt: "asc" },
       select: {
@@ -257,6 +258,47 @@ class OrderRepository {
     });
   }
 
+  /** Resolve o evento de um pedido — base do `requireOrderEventAccess`. */
+  async findEventIdById(id: string) {
+    const order = await prisma.order.findUnique({
+      where: { id },
+      select: { eventId: true },
+    });
+    return order?.eventId ?? null;
+  }
+
+  /** Parte 2 — marca o pedido como entregue. */
+  async deliver(id: string) {
+    return prisma.order.update({
+      where: { id },
+      data: { status: "DELIVERED", deliveredAt: new Date() },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        deliveredAt: true,
+      },
+    });
+  }
+
+  /** Parte 2 — dados do pedido para montar e-mails de notificação. */
+  async findByIdWithDetails(id: string) {
+    return prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        user: { select: { name: true, email: true } },
+        event: { select: { id: true, name: true } },
+        orderItems: {
+          select: {
+            quantity: true,
+            unitPrice: true,
+            item: { select: { name: true } },
+          },
+        },
+      },
+    });
+  }
 }
 
 export const orderRepository = new OrderRepository();

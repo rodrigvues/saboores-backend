@@ -2,15 +2,19 @@ import { Router } from "express";
 import { eventController } from "../controllers/event.controller.js";
 import { organizerController } from "../controllers/organizer.controller.js";
 import { requireAuth } from "../middlewares/requireAuth.js";
-import { requireAdmin } from "../middlewares/requireAdmin.js";
 import { requireEventAccess } from "../middlewares/requireEventAccess.js";
 
 const eventRoutes = Router();
 
 eventRoutes.get("/", requireAuth, eventController.index);
 
-eventRoutes.get("/:id/orders", requireAuth, requireAdmin, eventController.orders);
-eventRoutes.get("/:id/summary", requireAuth, requireAdmin, eventController.summary);
+// Parte 1 — rodadas geridas pelo usuário e criação de rodada.
+eventRoutes.get("/managed", requireAuth, eventController.managed);
+eventRoutes.post("/", requireAuth, eventController.create);
+
+// Gestão da rodada (ADMIN ou ORGANIZER vinculado ao evento).
+eventRoutes.get("/:id/orders", requireAuth, requireEventAccess, eventController.orders);
+eventRoutes.get("/:id/summary", requireAuth, requireEventAccess, eventController.summary);
 
 // F4.2 — participantes (qualquer autenticado).
 eventRoutes.get("/:id/participants", requireAuth, eventController.participants);
@@ -30,6 +34,7 @@ eventRoutes.delete(
   organizerController.remove,
 );
 
+eventRoutes.patch("/:id", requireAuth, requireEventAccess, eventController.update);
 eventRoutes.get("/:id", requireAuth, eventController.show);
 
 export { eventRoutes };

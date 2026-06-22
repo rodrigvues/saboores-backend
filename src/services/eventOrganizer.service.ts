@@ -1,33 +1,37 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { eventOrganizerRepository } from "../repositories/eventOrganizer.repository.js";
 import { eventRepository } from "../repositories/event.repository.js";
 import { userRepository } from "../repositories/user.repository.js";
 import { auditService, AuditAction } from "./audit.service.js";
 import { HttpError } from "../utils/http-error.js";
 
+type Tx = Prisma.TransactionClient | PrismaClient;
+
 class EventOrganizerService {
   /**
    * Cria o vínculo organizer↔evento e promove USER→ORGANIZER se necessário.
    *
-   * HOOK REUTILIZÁVEL (F3.1): quando o endpoint de **criar evento** existir, ele
-   * deve chamar este método com `{ eventId, userId: criador, grantedBy: criador }`
-   * para que o criador vire ORGANIZER e ganhe acesso automaticamente (F3.1 RN1/ET).
-   * Hoje é usado pelo fluxo de convite. Ver docs/plano-implementacao-fases-3-4.md.
+   * HOOK REUTILIZÁVEL (F3.1): usado tanto pelo **convite** quanto pela **criação
+   * de evento** (que passa `tx` para tudo acontecer na mesma transação do evento).
+   * O criador vira ORGANIZER e ganha acesso automaticamente (F3.1 RN1/ET).
    */
   async linkOrganizer(params: {
     eventId: string;
     userId: string;
     grantedBy?: string | null;
+    tx?: Tx;
   }) {
     await eventOrganizerRepository.create({
       eventId: params.eventId,
       userId: params.userId,
       createdByUserId: params.grantedBy ?? null,
+      tx: params.tx,
     });
 
-    const user = await userRepository.findByIdForAdmin(params.userId);
+    const user = await userRepository.findByIdForAdmin(params.userId, params.tx);
     if (user && user.role === "USER") {
       // Promoção pode valer no próximo refresh (≤15min) — F3.1 RN9.
-      await userRepository.setRole(params.userId, "ORGANIZER");
+      await userRepository.setRole(params.userId, "ORGANIZER", params.tx);
     }
   }
 

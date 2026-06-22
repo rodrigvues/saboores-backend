@@ -64,7 +64,7 @@ class RankingService {
       return cache;
     }
 
-    const rows = await statsRepository.confirmedOrderRows();
+    const rows = await statsRepository.validOrderRows();
 
     // Agrega por usuário: rodadas = eventos distintos; itens = soma de quantidade.
     const agg = new Map<string, { rounds: Set<string>; items: number }>();

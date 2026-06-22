@@ -82,6 +82,109 @@ class EmailService {
 
     await this.send({ to: params.to, subject, html, text });
   }
+
+  /** Parte 2 — aviso de que uma nova rodada começou (cron). */
+  async sendRoundStarted(params: { to: string; eventName: string; eventId: string }) {
+    const url = `${env.appUrl}/rodadas/${params.eventId}`;
+    const subject = `Nova rodada aberta: ${params.eventName} — Saboores`;
+    const text = [
+      `A rodada "${params.eventName}" está aberta para pedidos no Saboores!`,
+      "",
+      `Faça seu pedido: ${url}`,
+    ].join("\n");
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#e8590c;">Nova rodada aberta 🎉</h2>
+        <p>A rodada <strong>${params.eventName}</strong> está aberta para pedidos no <strong>Saboores</strong>!</p>
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Fazer meu pedido
+          </a>
+        </p>
+        <p style="font-size:13px;color:#52606d;">Corra que tem prazo!</p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
+  /** Parte 2 — pagamento de um pedido confirmado (apenas o dono do pedido). */
+  async sendPaymentConfirmed(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    items: { quantity: number; title: string }[];
+    total: string;
+  }) {
+    const url = `${env.appUrl}/pedidos`;
+    const subject = `Pagamento confirmado — ${params.eventName}`;
+    const itemsText = params.items
+      .map((item) => `  - ${item.quantity}× ${item.title}`)
+      .join("\n");
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `Confirmamos o pagamento do seu pedido na rodada "${params.eventName}".`,
+      "",
+      itemsText,
+      "",
+      `Total: R$ ${params.total}`,
+      "",
+      `Acompanhe em: ${url}`,
+    ].join("\n");
+
+    const itemsHtml = params.items
+      .map((item) => `<li>${item.quantity}× ${item.title}</li>`)
+      .join("");
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#0ca678;">Pagamento confirmado ✅</h2>
+        <p>Olá, <strong>${params.name}</strong>! Confirmamos o pagamento do seu pedido na rodada
+          <strong>${params.eventName}</strong>.</p>
+        <ul style="color:#52606d;">${itemsHtml}</ul>
+        <p style="font-weight:600;">Total: R$ ${params.total}</p>
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver meus pedidos
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
+  /** Parte 2 — pedido entregue (apenas o dono do pedido). */
+  async sendOrderDelivered(params: { to: string; name: string; eventName: string }) {
+    const url = `${env.appUrl}/pedidos`;
+    const subject = `Pedido entregue — ${params.eventName}`;
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `Seu pedido da rodada "${params.eventName}" foi entregue. Bom apetite! 😋`,
+      "",
+      `Histórico: ${url}`,
+    ].join("\n");
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#0ca678;">Pedido entregue 🛍️</h2>
+        <p>Olá, <strong>${params.name}</strong>! Seu pedido da rodada
+          <strong>${params.eventName}</strong> foi entregue. Bom apetite! 😋</p>
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver histórico
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
 }
 
 export const emailService = new EmailService();
