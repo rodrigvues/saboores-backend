@@ -20,13 +20,18 @@ class GmailProvider implements EmailProvider {
     this.transporter =
       env.gmailUser && env.gmailAppPassword
         ? nodemailer.createTransport({
-            service: "gmail",
+            host: "smtp.gmail.com",
+            port: 587,
+            secure: false,
+            requireTLS: true,
+            connectionTimeout: 20000,
+            greetingTimeout: 20000,
+            socketTimeout: 30000,
             auth: {
               user: env.gmailUser,
-              // App passwords são exibidos com espaços, mas valem sem eles.
               pass: env.gmailAppPassword.replace(/\s+/g, ""),
             },
-          })
+          } as any)
         : null;
   }
 
