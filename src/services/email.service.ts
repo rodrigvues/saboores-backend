@@ -1,55 +1,47 @@
-import { resendClient } from "../lib/email.js";
 import { env } from "../config/env.js";
+import { gmailProvider } from "../lib/email/gmail.provider.js";
+import type { EmailMessage } from "../lib/email/types.js";
 import { RESET_TTL_MINUTES } from "../lib/passwordReset.js";
 
 /**
- * Serviço centralizador de envio de e-mails (F3.5 ET). Todo e-mail do sistema
- * passa por aqui. Sem `RESEND_API_KEY`: em dev loga o conteúdo no console (para
- * testar o fluxo sem configurar nada); em prod apenas registra o erro.
+ * Serviço centralizador de envio de e-mails. Todos os templates do sistema vivem
+ * aqui; o "como enviar" fica no transporte (`provider`). Sem credenciais do
+ * transporte: em dev loga o conteúdo no console (para testar o fluxo sem
+ * configurar nada); em prod apenas registra o erro.
  *
- * SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (Resend).
+ * Transporte ATIVO: Gmail SMTP (`lib/email/gmail.provider.ts`). Resend continua
+ * disponível em `lib/email/resend.provider.ts` — para voltar a ele, troque a
+ * instância de `provider` abaixo (a interface é a mesma).
  */
 class EmailService {
-  private async send(params: {
-    to: string;
-    subject: string;
-    html: string;
-    text: string;
-  }) {
-    if (!resendClient) {
+  private readonly provider = gmailProvider;
+
+  private async send(message: EmailMessage) {
+    if (!this.provider.isConfigured()) {
       if (!env.isProd) {
         console.info(
           [
             "",
-            "📧 [email dev — Resend não configurado]",
-            `   para:    ${params.to}`,
-            `   assunto: ${params.subject}`,
-            `   ${params.text.replace(/\n/g, "\n   ")}`,
+            `📧 [email dev — ${this.provider.name} não configurado]`,
+            `   para:    ${message.to}`,
+            `   assunto: ${message.subject}`,
+            `   ${message.text.replace(/\n/g, "\n   ")}`,
             "",
           ].join("\n"),
         );
         return;
       }
       console.error(
-        "[email] RESEND_API_KEY ausente — e-mail não enviado:",
-        params.subject,
+        "[email] transporte não configurado — e-mail não enviado:",
+        message.subject,
       );
       return;
     }
 
     try {
-      const { error } = await resendClient.emails.send({
-        from: env.emailFrom,
-        to: params.to,
-        subject: params.subject,
-        html: params.html,
-        text: params.text,
-      });
-      if (error) {
-        console.error("[email] falha ao enviar via Resend:", error);
-      }
+      await this.provider.send(message);
     } catch (error) {
-      console.error("[email] erro inesperado no envio:", error);
+      console.error(`[email] falha ao enviar via ${this.provider.name}:`, error);
     }
   }
 

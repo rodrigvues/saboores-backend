@@ -21,6 +21,7 @@ const detailSelect = {
   endsAt: true,
   status: true,
   createdAt: true,
+  maxItemsPerOrder: true,
   type: {
     select: {
       id: true,

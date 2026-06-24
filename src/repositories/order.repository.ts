@@ -13,6 +13,7 @@ class OrderRepository {
         name: true,
         typeId: true,
         status: true,
+        maxItemsPerOrder: true,
       },
     });
   }

@@ -39,14 +39,17 @@ class OrderService {
     }
 
     if (event.status !== "OPEN") {
-      throw new HttpError(409, "Evento não está aberto.");
+      throw new HttpError(409, "Esta rodada não está aberta para pedidos.");
     }
 
     const normalizedItems = this.normalizeItems(data.items);
     const totalQuantity = normalizedItems.reduce((total, item) => total + item.quantity, 0);
 
-    if (totalQuantity >= 10) {
-      throw new HttpError(400, "Pedidos não podem ter 10 ou mais itens.");
+    if (totalQuantity > event.maxItemsPerOrder) {
+      throw new HttpError(
+        400,
+        `Cada pedido pode ter no máximo ${event.maxItemsPerOrder} itens.`,
+      );
     }
 
     const items = await orderRepository.findActiveItemsByIds(
@@ -54,7 +57,7 @@ class OrderService {
     );
 
     if (items.length !== normalizedItems.length) {
-      throw new HttpError(400, "Pedido contém itens inválidos ou inexistentes.");
+      throw new HttpError(400, "Alguns itens do pedido não estão mais disponíveis.");
     }
 
     const itemsById = new Map(items.map((item) => [item.id, item]));

@@ -107,6 +107,8 @@ model Event {
   createdAt       DateTime    @default(now())
   // Parte 2 — marca que o e-mail de "rodada começou" já foi enviado (idempotência do cron).
   startNotifiedAt DateTime?
+  // Limite de itens por pedido nesta rodada (configurável por evento; ainda sem CRUD).
+  maxItemsPerOrder Int        @default(15)
 
   type          Type             @relation(fields: [typeId], references: [id])
   createdByUser User             @relation(fields: [createdByUserId], references: [id])

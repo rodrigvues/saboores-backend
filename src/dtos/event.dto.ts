@@ -15,6 +15,7 @@ type EventListRecord = {
 
 type EventDetailsRecord = EventListRecord & {
   createdAt: Date;
+  maxItemsPerOrder: number;
   type: EventListRecord["type"] & {
     items: {
       id: string;
@@ -49,6 +50,7 @@ export type EventDetailsDto = {
   endsAt: Date;
   status: EventStatus;
   createdAt: Date;
+  maxItemsPerOrder: number;
   type: {
     id: string;
     title: string;
@@ -90,6 +92,7 @@ export function toEventDetailsDto(event: EventDetailsRecord): EventDetailsDto {
     endsAt: event.endsAt,
     status: event.status,
     createdAt: event.createdAt,
+    maxItemsPerOrder: event.maxItemsPerOrder,
     type: {
       id: event.type.id,
       title: event.type.name,

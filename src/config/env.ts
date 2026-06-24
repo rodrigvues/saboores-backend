@@ -21,9 +21,14 @@ const envSchema = z.object({
   CORS_ORIGIN: z.string().default(""),
   /** Força o atributo Secure do cookie. Default: liga em produção. */
   COOKIE_SECURE: z.string().optional(),
-  // ── F3.5: e-mail transacional (Resend) ──────────────────────
-  // SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (Resend). Opcionais para o app
-  // subir em dev; em produção devem ser definidos (ver checagem abaixo).
+  // ── E-mail transacional ─────────────────────────────────────
+  // Transporte ATIVO: Gmail SMTP (não exige domínio próprio — App Password).
+  GMAIL_USER: z.string().optional(),
+  GMAIL_APP_PASSWORD: z.string().optional(),
+  /** Nome amigável do remetente (ex.: "Saboores <voce@gmail.com>"). */
+  EMAIL_FROM_NAME: z.string().default("Saboores"),
+  // Resend fica como transporte alternativo (inativo). Precisa de domínio
+  // verificado. Opcionais em dev; o serviço degrada para console.
   RESEND_API_KEY: z.string().optional(),
   EMAIL_FROM: z.string().default("Saboores <onboarding@resend.dev>"),
   /** Base do frontend p/ montar o link de redefinição (F3.5). */
@@ -76,7 +81,11 @@ export const env = {
     raw.COOKIE_SECURE !== undefined
       ? raw.COOKIE_SECURE === "true"
       : raw.NODE_ENV === "production",
-  // F3.5 — e-mail transacional.
+  // E-mail transacional — Gmail SMTP (ativo).
+  gmailUser: raw.GMAIL_USER,
+  gmailAppPassword: raw.GMAIL_APP_PASSWORD,
+  emailFromName: raw.EMAIL_FROM_NAME,
+  // Resend (transporte alternativo, inativo).
   resendApiKey: raw.RESEND_API_KEY,
   emailFrom: raw.EMAIL_FROM,
   appUrl: raw.APP_URL.replace(/\/+$/, ""),
@@ -92,11 +101,11 @@ export const env = {
   notifyRoundsCron: raw.NOTIFY_ROUNDS_CRON,
 } as const;
 
-// Em produção, e-mail é obrigatório (fluxo "esqueci a senha"). Em dev, o serviço
+// Em produção, e-mail é necessário (fluxo "esqueci a senha"). Em dev, o serviço
 // degrada para console — ver src/services/email.service.ts.
-if (env.isProd && !env.resendApiKey) {
+if (env.isProd && !env.gmailUser && !env.resendApiKey) {
   console.warn(
-    "⚠️  RESEND_API_KEY ausente em produção: o envio de e-mail (reset de senha) " +
-      "ficará indisponível. Ver docs/CONFIGURACAO-NECESSARIA.md (Resend).",
+    "⚠️  Nenhum transporte de e-mail configurado em produção (defina GMAIL_USER + " +
+      "GMAIL_APP_PASSWORD, ou RESEND_API_KEY): o envio de e-mail ficará indisponível.",
   );
 }
