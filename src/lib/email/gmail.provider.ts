@@ -24,6 +24,7 @@ class GmailProvider implements EmailProvider {
             port: 587,
             secure: false,
             requireTLS: true,
+            family: 4,
             connectionTimeout: 20000,
             greetingTimeout: 20000,
             socketTimeout: 30000,
