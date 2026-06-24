@@ -20,10 +20,7 @@ class GmailProvider implements EmailProvider {
     this.transporter =
       env.gmailUser && env.gmailAppPassword
         ? nodemailer.createTransport({
-            host: "smtp.gmail.com",
-            port: 465,
-            secure: true,
-            family: 4,
+            service: "gmail",
             auth: {
               user: env.gmailUser,
               // App passwords são exibidos com espaços, mas valem sem eles.
