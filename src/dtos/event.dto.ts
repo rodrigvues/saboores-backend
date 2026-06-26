@@ -1,4 +1,10 @@
-import type { EventStatus, Prisma } from "@prisma/client";
+import type { EventKind, EventStatus, Prisma } from "@prisma/client";
+
+type EventTypeRef = {
+  id: string;
+  name: string;
+  description: string | null;
+};
 
 type EventListRecord = {
   id: string;
@@ -6,24 +12,40 @@ type EventListRecord = {
   startsAt: Date;
   endsAt: Date;
   status: EventStatus;
-  type: {
-    id: string;
-    name: string;
-    description: string | null;
-  };
+  kind: EventKind;
+  slicesPerPizza: number | null;
+  avgLargePizzaPrice: Prisma.Decimal | null;
+  type: EventTypeRef | null;
 };
 
-type EventDetailsRecord = EventListRecord & {
+type EventDetailsRecord = {
+  id: string;
+  name: string;
+  startsAt: Date;
+  endsAt: Date;
+  status: EventStatus;
   createdAt: Date;
   maxItemsPerOrder: number;
-  type: EventListRecord["type"] & {
-    items: {
-      id: string;
-      name: string;
-      price: Prisma.Decimal;
-      active: boolean;
-    }[];
-  };
+  kind: EventKind;
+  maxFlavorsPerOrder: number | null;
+  slicesPerPizza: number | null;
+  avgLargePizzaPrice: Prisma.Decimal | null;
+  pixKey: string | null;
+  pixQrUrl: string | null;
+  actualTotalCost: Prisma.Decimal | null;
+  costEvidenceUrl: string | null;
+  costRegisteredAt: Date | null;
+  choicesLockedAt: Date | null;
+  type:
+    | (EventTypeRef & {
+        items: {
+          id: string;
+          name: string;
+          price: Prisma.Decimal;
+          active: boolean;
+        }[];
+      })
+    | null;
   createdByUser: {
     id: string;
     name: string;
@@ -35,11 +57,27 @@ export type EventSummaryDto = {
   id: string;
   title: string;
   description: string | null;
-  typeId: string;
-  typeTitle: string;
+  kind: EventKind;
+  typeId: string | null;
+  typeTitle: string | null;
   startsAt: Date;
   endsAt: Date;
   status: EventStatus;
+  /** Pizza: "≈ R$ X/pessoa" (motor). Null no STANDARD. */
+  estimatedPerPerson: string | null;
+};
+
+/** Config + custo do racha (RP3/RP9). Só presente em PIZZA_SPLIT. */
+export type EventPizzaConfig = {
+  maxFlavorsPerOrder: number | null;
+  slicesPerPizza: number | null;
+  avgLargePizzaPrice: string | null;
+  pixKey: string | null;
+  pixQrUrl: string | null;
+  actualTotalCost: string | null;
+  costEvidenceUrl: string | null;
+  costRegisteredAt: Date | null;
+  choicesLockedAt: Date | null;
 };
 
 export type EventDetailsDto = {
@@ -51,64 +89,91 @@ export type EventDetailsDto = {
   status: EventStatus;
   createdAt: Date;
   maxItemsPerOrder: number;
+  kind: EventKind;
   type: {
     id: string;
     title: string;
     description: string | null;
-  };
+  } | null;
   createdBy: {
     id: string;
     name: string;
     surname: string;
     fullName: string;
   };
+  /** Itens/sabores do pastel (STANDARD). Vazio no racha — lá os sabores vêm de /flavors. */
   flavors: {
     id: string;
     title: string;
     price: string;
     active: boolean;
   }[];
+  /** Config do racha (PIZZA_SPLIT). Null no STANDARD. */
+  pizza: EventPizzaConfig | null;
 };
 
-export function toEventSummaryDto(event: EventListRecord): EventSummaryDto {
+export function toEventSummaryDto(
+  event: EventListRecord,
+  estimatedPerPerson: string | null = null,
+): EventSummaryDto {
   return {
     id: event.id,
     title: event.name,
-    description: event.type.description,
-    typeId: event.type.id,
-    typeTitle: event.type.name,
+    description: event.type?.description ?? null,
+    kind: event.kind,
+    typeId: event.type?.id ?? null,
+    typeTitle: event.type?.name ?? null,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     status: event.status,
+    estimatedPerPerson,
   };
 }
 
 export function toEventDetailsDto(event: EventDetailsRecord): EventDetailsDto {
+  const isPizza = event.kind === "PIZZA_SPLIT";
+
   return {
     id: event.id,
     title: event.name,
-    description: event.type.description,
+    description: event.type?.description ?? null,
     startsAt: event.startsAt,
     endsAt: event.endsAt,
     status: event.status,
     createdAt: event.createdAt,
     maxItemsPerOrder: event.maxItemsPerOrder,
-    type: {
-      id: event.type.id,
-      title: event.type.name,
-      description: event.type.description,
-    },
+    kind: event.kind,
+    type: event.type
+      ? {
+          id: event.type.id,
+          title: event.type.name,
+          description: event.type.description,
+        }
+      : null,
     createdBy: {
       id: event.createdByUser.id,
       name: event.createdByUser.name,
       surname: event.createdByUser.surname,
       fullName: `${event.createdByUser.name} ${event.createdByUser.surname}`,
     },
-    flavors: event.type.items.map((item) => ({
+    flavors: (event.type?.items ?? []).map((item) => ({
       id: item.id,
       title: item.name,
       price: item.price.toString(),
       active: item.active,
     })),
+    pizza: isPizza
+      ? {
+          maxFlavorsPerOrder: event.maxFlavorsPerOrder,
+          slicesPerPizza: event.slicesPerPizza,
+          avgLargePizzaPrice: event.avgLargePizzaPrice?.toString() ?? null,
+          pixKey: event.pixKey,
+          pixQrUrl: event.pixQrUrl,
+          actualTotalCost: event.actualTotalCost?.toString() ?? null,
+          costEvidenceUrl: event.costEvidenceUrl,
+          costRegisteredAt: event.costRegisteredAt,
+          choicesLockedAt: event.choicesLockedAt,
+        }
+      : null,
   };
 }

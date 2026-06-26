@@ -5,23 +5,25 @@ import {
 import { eventRepository } from "../repositories/event.repository.js";
 import { typeRepository } from "../repositories/type.repository.js";
 import { orderRepository } from "../repositories/order.repository.js";
+import { flavorRepository } from "../repositories/flavor.repository.js";
 import { prisma } from "../lib/prisma.js";
+import { env } from "../config/env.js";
 import { eventOrganizerService } from "./eventOrganizer.service.js";
 import { auditService, AuditAction } from "./audit.service.js";
+import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { HttpError } from "../utils/http-error.js";
 import type { CreateEventInput, UpdateEventInput } from "../schemas/event.schema.js";
 
 class EventService {
   async getEvents() {
     const events = await eventRepository.findMany();
-
-    return events.map(toEventSummaryDto);
+    return pizzaSplitService.attachEstimates(events);
   }
 
   /** Rodadas que o usuário gerencia (ADMIN: todas; ORGANIZER: vinculadas). */
   async getManaged(params: { userId: string; isAdmin: boolean }) {
     const events = await eventRepository.findManagedBy(params);
-    return events.map(toEventSummaryDto);
+    return pizzaSplitService.attachEstimates(events);
   }
 
   async getEventById(id: string) {
@@ -35,16 +37,19 @@ class EventService {
   }
 
   /**
-   * Cria a rodada (Parte 1). Modo A: `typeId` existente. Modo B: `newType`
-   * inline (cria Tipo + itens na mesma transação). Em ambos, o criador é
-   * vinculado como ORGANIZER e promovido se for USER.
+   * Cria a rodada. Ramifica por `kind`:
+   * - STANDARD: `typeId` existente ou `newType` inline (pastel).
+   * - PIZZA_SPLIT: sem Type; config do motor + PIX + sabores extras.
+   * Em ambos, o criador vira ORGANIZER (promovido se for USER).
    */
-  async create(params: {
-    actorId: string;
-    input: CreateEventInput;
-  }) {
-    const { input } = params;
+  async create(params: { actorId: string; input: CreateEventInput }) {
+    if (params.input.kind === "PIZZA_SPLIT") {
+      return this.createPizza(params.actorId, params.input);
+    }
+    return this.createStandard(params.actorId, params.input);
+  }
 
+  private async createStandard(actorId: string, input: CreateEventInput) {
     const result = await prisma.$transaction(async (tx) => {
       let typeId: string;
       let createdTypeId: string | null = null;
@@ -53,7 +58,7 @@ class EventService {
         const type = await typeRepository.create({
           name: input.newType.name,
           description: input.newType.description ?? null,
-          createdByUserId: params.actorId,
+          createdByUserId: actorId,
           items: input.newType.items,
           tx,
         });
@@ -73,14 +78,14 @@ class EventService {
         startsAt: input.startsAt,
         endsAt: input.endsAt,
         status: input.status,
-        createdByUserId: params.actorId,
+        createdByUserId: actorId,
         tx,
       });
 
       await eventOrganizerService.linkOrganizer({
         eventId: event.id,
-        userId: params.actorId,
-        grantedBy: params.actorId,
+        userId: actorId,
+        grantedBy: actorId,
         tx,
       });
 
@@ -89,13 +94,13 @@ class EventService {
 
     if (result.createdTypeId) {
       await auditService.log({
-        actorId: params.actorId,
+        actorId,
         action: AuditAction.TYPE_CREATE,
         targetId: result.createdTypeId,
       });
     }
     await auditService.log({
-      actorId: params.actorId,
+      actorId,
       action: AuditAction.EVENT_CREATE,
       targetId: result.event.id,
     });
@@ -103,7 +108,55 @@ class EventService {
     return toEventDetailsDto(result.event);
   }
 
-  /** Edita a rodada (nome/datas/status). Posse via `requireEventAccess`. */
+  private async createPizza(actorId: string, input: CreateEventInput) {
+    const result = await prisma.$transaction(async (tx) => {
+      const event = await eventRepository.create({
+        name: input.name,
+        typeId: null,
+        kind: "PIZZA_SPLIT",
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        status: input.status,
+        createdByUserId: actorId,
+        maxFlavorsPerOrder: input.maxFlavorsPerOrder ?? 3,
+        slicesPerPizza: input.slicesPerPizza ?? env.defaultSlicesPerPizza,
+        avgLargePizzaPrice: input.avgLargePizzaPrice ?? env.defaultLargePizzaPrice,
+        pixKey: input.pixKey ?? null,
+        pixQrUrl: input.pixQrUrl ?? null,
+        tx,
+      });
+
+      // Sabores extras informados na criação (RP3).
+      for (const flavor of input.extraFlavors ?? []) {
+        await flavorRepository.create({
+          name: flavor.name,
+          isSweet: flavor.isSweet ?? false,
+          eventId: event.id,
+          createdByUserId: actorId,
+          tx,
+        });
+      }
+
+      await eventOrganizerService.linkOrganizer({
+        eventId: event.id,
+        userId: actorId,
+        grantedBy: actorId,
+        tx,
+      });
+
+      return { event };
+    });
+
+    await auditService.log({
+      actorId,
+      action: AuditAction.EVENT_CREATE,
+      targetId: result.event.id,
+    });
+
+    return toEventDetailsDto(result.event);
+  }
+
+  /** Edita a rodada (nome/datas/status e, no racha, a config). Posse via `requireEventAccess`. */
   async update(params: {
     actorId: string;
     eventId: string;
@@ -120,11 +173,35 @@ class EventService {
       throw new HttpError(400, "O término deve ser após o início.");
     }
 
+    const pizzaConfigProvided =
+      params.input.maxFlavorsPerOrder !== undefined ||
+      params.input.slicesPerPizza !== undefined ||
+      params.input.avgLargePizzaPrice !== undefined ||
+      params.input.pixKey !== undefined ||
+      params.input.pixQrUrl !== undefined;
+
+    if (pizzaConfigProvided) {
+      if (current.kind !== "PIZZA_SPLIT") {
+        throw new HttpError(400, "Configuração de racha não se aplica a esta rodada.");
+      }
+      if (current.costRegisteredAt) {
+        throw new HttpError(
+          409,
+          "O custo já foi registrado; a configuração está congelada.",
+        );
+      }
+    }
+
     const updated = await eventRepository.update(params.eventId, {
       name: params.input.name,
       startsAt: params.input.startsAt,
       endsAt: params.input.endsAt,
       status: params.input.status,
+      maxFlavorsPerOrder: params.input.maxFlavorsPerOrder,
+      slicesPerPizza: params.input.slicesPerPizza,
+      avgLargePizzaPrice: params.input.avgLargePizzaPrice,
+      pixKey: params.input.pixKey,
+      pixQrUrl: params.input.pixQrUrl,
     });
 
     await auditService.log({

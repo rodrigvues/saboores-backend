@@ -14,3 +14,10 @@ export const ACTIVE_PARTICIPATION_STATUSES: OrderStatus[] = [
   "CONFIRMED",
   "DELIVERED",
 ];
+
+/**
+ * Racha de pizza — janela em que o participante ainda edita a própria entrada
+ * (RP5 RN4): a partir de `Order.createdAt`, por 10 minutos. Passado isso (ou com
+ * a rodada fechada/escolhas travadas), só o organizador mexe.
+ */
+export const PIZZA_EDIT_WINDOW_MS = 10 * 60 * 1000;

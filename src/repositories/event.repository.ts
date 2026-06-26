@@ -1,4 +1,4 @@
-import type { EventStatus, Prisma, PrismaClient } from "@prisma/client";
+import type { EventKind, EventStatus, Prisma, PrismaClient } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
@@ -10,6 +10,10 @@ const listSelect = {
   startsAt: true,
   endsAt: true,
   status: true,
+  kind: true,
+  // Pizza: base p/ a estimativa "≈ R$ X/pessoa" no card (RP7). Null no STANDARD.
+  slicesPerPizza: true,
+  avgLargePizzaPrice: true,
   type: { select: { id: true, name: true, description: true } },
 } satisfies Prisma.EventSelect;
 
@@ -22,6 +26,17 @@ const detailSelect = {
   status: true,
   createdAt: true,
   maxItemsPerOrder: true,
+  kind: true,
+  // Config do racha (null no STANDARD).
+  maxFlavorsPerOrder: true,
+  slicesPerPizza: true,
+  avgLargePizzaPrice: true,
+  pixKey: true,
+  pixQrUrl: true,
+  actualTotalCost: true,
+  costEvidenceUrl: true,
+  costRegisteredAt: true,
+  choicesLockedAt: true,
   type: {
     select: {
       id: true,
@@ -70,11 +85,17 @@ class EventRepository {
 
   async create(data: {
     name: string;
-    typeId: string;
+    typeId: string | null;
+    kind?: EventKind;
     startsAt: Date;
     endsAt: Date;
     status?: EventStatus;
     createdByUserId: string;
+    maxFlavorsPerOrder?: number | null;
+    slicesPerPizza?: number | null;
+    avgLargePizzaPrice?: number | null;
+    pixKey?: string | null;
+    pixQrUrl?: string | null;
     tx?: Tx;
   }) {
     const client = data.tx ?? prisma;
@@ -82,10 +103,16 @@ class EventRepository {
       data: {
         name: data.name,
         typeId: data.typeId,
+        ...(data.kind ? { kind: data.kind } : {}),
         startsAt: data.startsAt,
         endsAt: data.endsAt,
         ...(data.status ? { status: data.status } : {}),
         createdByUserId: data.createdByUserId,
+        maxFlavorsPerOrder: data.maxFlavorsPerOrder ?? null,
+        slicesPerPizza: data.slicesPerPizza ?? null,
+        avgLargePizzaPrice: data.avgLargePizzaPrice ?? null,
+        pixKey: data.pixKey ?? null,
+        pixQrUrl: data.pixQrUrl ?? null,
       },
       select: detailSelect,
     });
@@ -98,16 +125,78 @@ class EventRepository {
       startsAt?: Date;
       endsAt?: Date;
       status?: EventStatus;
+      maxFlavorsPerOrder?: number;
+      slicesPerPizza?: number;
+      avgLargePizzaPrice?: number;
+      pixKey?: string;
+      pixQrUrl?: string;
     },
   ) {
     return prisma.event.update({ where: { id }, data, select: detailSelect });
   }
 
-  /** Janela/status para validar edição (datas coerentes). */
+  /** Janela/status/modo para validar edição (datas coerentes, ciclo de vida). */
   async findForUpdate(id: string) {
     return prisma.event.findUnique({
       where: { id },
-      select: { id: true, startsAt: true, endsAt: true, status: true },
+      select: {
+        id: true,
+        startsAt: true,
+        endsAt: true,
+        status: true,
+        kind: true,
+        costRegisteredAt: true,
+        choicesLockedAt: true,
+      },
+    });
+  }
+
+  /** RP9 — fecha as escolhas (trava novas participações/edições). */
+  async lockChoices(id: string) {
+    return prisma.event.update({
+      where: { id },
+      data: { choicesLockedAt: new Date() },
+      select: detailSelect,
+    });
+  }
+
+  /** Racha — núcleo enxuto p/ custo/rateio (sem carregar itens do Type). */
+  async findPizzaCore(id: string) {
+    return prisma.event.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        kind: true,
+        slicesPerPizza: true,
+        avgLargePizzaPrice: true,
+        costRegisteredAt: true,
+        actualTotalCost: true,
+        createdByUserId: true,
+        pixKey: true,
+        pixQrUrl: true,
+        costEvidenceUrl: true,
+        choicesLockedAt: true,
+      },
+    });
+  }
+
+  /** RP9/RP10 — grava o custo real (+ evidência) numa transação com o rateio. */
+  async registerCost(
+    id: string,
+    data: { actualTotalCost: number; costEvidenceUrl?: string | null },
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? prisma;
+    return client.event.update({
+      where: { id },
+      data: {
+        actualTotalCost: data.actualTotalCost,
+        costRegisteredAt: new Date(),
+        ...(data.costEvidenceUrl ? { costEvidenceUrl: data.costEvidenceUrl } : {}),
+      },
+      select: { id: true },
     });
   }
 }

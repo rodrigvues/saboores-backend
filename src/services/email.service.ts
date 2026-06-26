@@ -149,6 +149,54 @@ class EmailService {
     await this.send({ to: params.to, subject, html, text });
   }
 
+  /**
+   * RP12 — racha fechado: avisa cada participante do **valor real** + o **PIX do
+   * organizador** para pagar. Fire-and-forget no registro do custo.
+   */
+  async sendSplitSettled(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    amount: string;
+    pixKey: string | null;
+  }) {
+    const url = `${env.appUrl}/pedidos`;
+    const subject = `O racha fechou — ${params.eventName}`;
+    const pixText = params.pixKey
+      ? `\nPague no PIX do organizador: ${params.pixKey}`
+      : "";
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `O racha "${params.eventName}" fechou. Seu valor é R$ ${params.amount}.`,
+      pixText,
+      "",
+      `Detalhes e pagamento: ${url}`,
+    ].join("\n");
+
+    const pixHtml = params.pixKey
+      ? `<p style="font-size:14px;color:#1f2933;">Chave PIX do organizador:<br/>
+          <code style="font-size:15px;">${params.pixKey}</code></p>`
+      : "";
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#e8590c;">O racha fechou 🍕</h2>
+        <p>Olá, <strong>${params.name}</strong>! O racha
+          <strong>${params.eventName}</strong> fechou.</p>
+        <p style="font-size:18px;font-weight:700;">Seu valor: R$ ${params.amount}</p>
+        ${pixHtml}
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver e pagar
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
   /** Parte 2 — pedido entregue (apenas o dono do pedido). */
   async sendOrderDelivered(params: { to: string; name: string; eventName: string }) {
     const url = `${env.appUrl}/pedidos`;

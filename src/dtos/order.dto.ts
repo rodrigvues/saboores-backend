@@ -1,4 +1,5 @@
 import { Prisma, type EventStatus, type OrderStatus, type PaymentStatus } from "@prisma/client";
+import { PIZZA_EDIT_WINDOW_MS } from "../constants/order.js";
 
 type OrderItemRecord = {
   quantity: number;
@@ -151,6 +152,71 @@ export type EventSummaryDto = {
   }[];
   grandTotal: string;
 };
+
+// ── Racha de pizza — participação (votos + fatias + respostas) ───────────────
+
+type PizzaParticipationRecord = {
+  id: string;
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  createdAt: Date;
+  slicesWanted: number | null;
+  amountDue: Prisma.Decimal | null;
+  event: { id: string; name: string };
+  flavorVotes: { flavor: { id: string; name: string; isSweet: boolean } }[];
+  preferences: {
+    questionId: string;
+    answer: boolean;
+    question: { key: string; text: string };
+  }[];
+};
+
+export type PizzaParticipationDto = {
+  id: string;
+  kind: "PIZZA_SPLIT";
+  status: OrderStatus;
+  paymentStatus: PaymentStatus;
+  createdAt: Date;
+  event: { id: string; title: string };
+  slicesWanted: number | null;
+  /** Valor real após o rateio (string Decimal) ou null antes do custo. */
+  amountDue: string | null;
+  /** Estimativa "≈ R$ X/pessoa" (motor) enquanto não há custo real. */
+  estimatedPerPerson: string | null;
+  /** Limite para o próprio participante editar (createdAt + 10 min). */
+  editableUntil: Date;
+  flavors: { id: string; name: string; isSweet: boolean }[];
+  answers: { questionId: string; key: string; text: string; answer: boolean }[];
+};
+
+export function toPizzaParticipationDto(
+  order: PizzaParticipationRecord,
+  estimatedPerPerson: string | null,
+): PizzaParticipationDto {
+  return {
+    id: order.id,
+    kind: "PIZZA_SPLIT",
+    status: order.status,
+    paymentStatus: order.paymentStatus,
+    createdAt: order.createdAt,
+    event: { id: order.event.id, title: order.event.name },
+    slicesWanted: order.slicesWanted,
+    amountDue: order.amountDue?.toString() ?? null,
+    estimatedPerPerson,
+    editableUntil: new Date(order.createdAt.getTime() + PIZZA_EDIT_WINDOW_MS),
+    flavors: order.flavorVotes.map((vote) => ({
+      id: vote.flavor.id,
+      name: vote.flavor.name,
+      isSweet: vote.flavor.isSweet,
+    })),
+    answers: order.preferences.map((pref) => ({
+      questionId: pref.questionId,
+      key: pref.question.key,
+      text: pref.question.text,
+      answer: pref.answer,
+    })),
+  };
+}
 
 function getOrderItemsTotal(orderItems: OrderItemRecord[]) {
   return orderItems.reduce(

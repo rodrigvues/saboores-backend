@@ -6,34 +6,37 @@ import {
   toCreatedOrderDto,
   toDeliverOrderDto,
   toEventSummaryDto,
+  toPizzaParticipationDto,
   toUserOrderDto,
 } from "../dtos/order.dto.js";
 import { orderRepository } from "../repositories/order.repository.js";
 import { userRepository } from "../repositories/user.repository.js";
+import { eventRepository } from "../repositories/event.repository.js";
+import { flavorRepository } from "../repositories/flavor.repository.js";
+import { preferenceQuestionRepository } from "../repositories/preferenceQuestion.repository.js";
 import { rankingService } from "./ranking.service.js";
+import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { emailService } from "./email.service.js";
 import { auditService, AuditAction } from "./audit.service.js";
 import { HttpError } from "../utils/http-error.js";
+import { PIZZA_EDIT_WINDOW_MS } from "../constants/order.js";
+import type {
+  CreateOrderInput,
+  UpdateParticipationInput,
+} from "../schemas/order.schema.js";
 
-type CreateOrderInput = {
-  userId: string;
-  eventId: string;
-  items: {
-    itemId: string;
-    quantity: number;
-  }[];
-};
+type EventForOrder = NonNullable<
+  Awaited<ReturnType<typeof orderRepository.findEventForOrder>>
+>;
 
 class OrderService {
-  async create(data: CreateOrderInput) {
-    const user = await userRepository.findById(data.userId);
-
+  async create(params: { userId: string; input: CreateOrderInput }) {
+    const user = await userRepository.findById(params.userId);
     if (!user) {
       throw new HttpError(404, "Perfil não encontrado.");
     }
 
-    const event = await orderRepository.findEventForOrder(data.eventId);
-
+    const event = await orderRepository.findEventForOrder(params.input.eventId);
     if (!event) {
       throw new HttpError(404, "Evento não encontrado.");
     }
@@ -42,8 +45,27 @@ class OrderService {
       throw new HttpError(409, "Esta rodada não está aberta para pedidos.");
     }
 
-    const normalizedItems = this.normalizeItems(data.items);
-    const totalQuantity = normalizedItems.reduce((total, item) => total + item.quantity, 0);
+    if (event.kind === "PIZZA_SPLIT") {
+      return this.createPizzaParticipation(params.userId, event, params.input);
+    }
+
+    return this.createStandardOrder(params.userId, event, params.input);
+  }
+
+  private async createStandardOrder(
+    userId: string,
+    event: EventForOrder,
+    input: CreateOrderInput,
+  ) {
+    if (!input.items || input.items.length === 0) {
+      throw new HttpError(400, "Inclua ao menos um item no pedido.");
+    }
+
+    const normalizedItems = this.normalizeItems(input.items);
+    const totalQuantity = normalizedItems.reduce(
+      (total, item) => total + item.quantity,
+      0,
+    );
 
     if (totalQuantity > event.maxItemsPerOrder) {
       throw new HttpError(
@@ -77,12 +99,166 @@ class OrderService {
     });
 
     const order = await orderRepository.create({
-      userId: data.userId,
-      eventId: data.eventId,
+      userId,
+      eventId: event.id,
       items: orderItems,
     });
 
     return toCreatedOrderDto(order);
+  }
+
+  /**
+   * Racha (RP5) — entrada **única** por pessoa: votos de sabor + fatias +
+   * respostas. Bloqueia 2ª participação, valida limites e escolhas travadas.
+   */
+  private async createPizzaParticipation(
+    userId: string,
+    event: EventForOrder,
+    input: CreateOrderInput,
+  ) {
+    if (event.choicesLockedAt) {
+      throw new HttpError(409, "As escolhas desta rodada já foram fechadas.");
+    }
+
+    const existing = await orderRepository.findUserParticipation(event.id, userId);
+    if (existing) {
+      throw new HttpError(409, "Você já entrou neste racha. Edite sua participação.");
+    }
+
+    const { flavorIds, slicesWanted } = await this.validateParticipationInput(
+      event,
+      input.flavorIds,
+      input.slicesWanted,
+      input.answers,
+    );
+
+    const order = await orderRepository.createParticipation({
+      userId,
+      eventId: event.id,
+      slicesWanted,
+      flavorIds,
+      answers: input.answers ?? [],
+    });
+
+    const estimate = await pizzaSplitService.estimatePerPersonForEvent(event);
+    return toPizzaParticipationDto(order, estimate);
+  }
+
+  /**
+   * Racha (RP5 RN4) — edita a própria participação só com a rodada **aberta** e
+   * **até 10 min** após criá-la. Substitui votos/respostas e atualiza fatias.
+   */
+  async editParticipation(params: {
+    orderId: string;
+    userId: string;
+    input: UpdateParticipationInput;
+  }) {
+    const order = await orderRepository.findParticipationForEdit(params.orderId);
+    if (!order) {
+      throw new HttpError(404, "Pedido não encontrado.");
+    }
+    if (order.event.kind !== "PIZZA_SPLIT") {
+      throw new HttpError(400, "Esta rodada não permite editar a participação.");
+    }
+    if (order.userId !== params.userId) {
+      throw new HttpError(403, "Você só pode editar a sua participação.");
+    }
+    if (order.event.status !== "OPEN" || order.event.choicesLockedAt) {
+      throw new HttpError(409, "A rodada não está mais aberta para edições.");
+    }
+    if (Date.now() - order.createdAt.getTime() > PIZZA_EDIT_WINDOW_MS) {
+      throw new HttpError(
+        409,
+        "O prazo de 10 minutos para editar sua participação já passou.",
+      );
+    }
+
+    const { flavorIds, slicesWanted } = await this.validateParticipationInput(
+      order.event,
+      params.input.flavorIds,
+      params.input.slicesWanted,
+      params.input.answers,
+    );
+
+    const updated = await orderRepository.updateParticipation(params.orderId, {
+      slicesWanted,
+      flavorIds,
+      answers: params.input.answers ?? [],
+    });
+
+    const estimate = await pizzaSplitService.estimatePerPersonForEvent({
+      id: order.event.id,
+      slicesPerPizza: order.event.slicesPerPizza,
+      avgLargePizzaPrice: order.event.avgLargePizzaPrice,
+    });
+    return toPizzaParticipationDto(updated, estimate);
+  }
+
+  /** Valida sabores (limite, validade) + fatias (teto) + perguntas ativas. */
+  private async validateParticipationInput(
+    event: {
+      id: string;
+      maxFlavorsPerOrder: number | null;
+      maxItemsPerOrder: number;
+    },
+    rawFlavorIds: string[] | undefined,
+    rawSlices: number | undefined,
+    answers: { questionId: string; answer: boolean }[] | undefined,
+  ) {
+    const flavorIds = [...new Set(rawFlavorIds ?? [])];
+    if (flavorIds.length === 0) {
+      throw new HttpError(400, "Escolha ao menos um sabor.");
+    }
+    const maxFlavors = event.maxFlavorsPerOrder ?? 3;
+    if (flavorIds.length > maxFlavors) {
+      throw new HttpError(
+        400,
+        `Você pode escolher no máximo ${maxFlavors} sabores.`,
+      );
+    }
+    const validFlavors = await flavorRepository.findValidForEvent(event.id, flavorIds);
+    if (validFlavors.length !== flavorIds.length) {
+      throw new HttpError(400, "Algum sabor não está disponível nesta rodada.");
+    }
+
+    const slicesWanted = rawSlices ?? 0;
+    if (slicesWanted < 1) {
+      throw new HttpError(400, "Informe quantas fatias você costuma comer.");
+    }
+    if (slicesWanted > event.maxItemsPerOrder) {
+      throw new HttpError(
+        400,
+        `No máximo ${event.maxItemsPerOrder} fatias por pessoa.`,
+      );
+    }
+
+    if (answers && answers.length > 0) {
+      const ids = [...new Set(answers.map((answer) => answer.questionId))];
+      const validQuestions =
+        await preferenceQuestionRepository.findActiveByIds(ids);
+      if (validQuestions.length !== ids.length) {
+        throw new HttpError(400, "Alguma pergunta do formulário é inválida.");
+      }
+    }
+
+    return { flavorIds, slicesWanted };
+  }
+
+  /** Racha — participação do usuário no evento (ou null). Inclui estimativa "≈". */
+  async getMyParticipation(eventId: string, userId: string) {
+    const order = await orderRepository.findUserParticipationDetail(eventId, userId);
+    if (!order) {
+      return null;
+    }
+    const config = await eventRepository.findPizzaCore(eventId);
+    const estimate = config
+      ? await pizzaSplitService.estimatePerPersonForEvent({
+          id: eventId,
+          slicesPerPizza: config.slicesPerPizza,
+          avgLargePizzaPrice: config.avgLargePizzaPrice,
+        })
+      : null;
+    return toPizzaParticipationDto(order, estimate);
   }
 
   async getByUserId(userId: string) {
@@ -97,11 +273,19 @@ class OrderService {
     return orders.map(toUserOrderDto);
   }
 
+  /** Cancelamento pelo **dono** — só no pastel (no racha, só o organizador). */
   async cancel(id: string, userId: string) {
     const order = await orderRepository.findByIdForCancel(id);
 
     if (!order) {
       throw new HttpError(404, "Pedido não encontrado.");
+    }
+
+    if (order.event.kind === "PIZZA_SPLIT") {
+      throw new HttpError(
+        403,
+        "No racha de pizza, só o organizador pode cancelar um pedido.",
+      );
     }
 
     if (order.userId !== userId) {
@@ -119,6 +303,35 @@ class OrderService {
     const cancelledOrder = await orderRepository.cancel(id);
 
     return toCancelOrderDto(cancelledOrder);
+  }
+
+  /**
+   * Cancelamento pelo **organizador** (RP11) — único caminho de cancelamento no
+   * racha. Se o custo já foi registrado e ninguém pagou, recalcula o rateio.
+   */
+  async cancelByOrganizer(id: string, actorId: string) {
+    const order = await orderRepository.findByIdForOrganizerCancel(id);
+    if (!order) {
+      throw new HttpError(404, "Pedido não encontrado.");
+    }
+    if (["CANCELLED", "EXPIRED"].includes(order.status)) {
+      throw new HttpError(409, "Pedido já está cancelado.");
+    }
+
+    const cancelled = await orderRepository.cancel(id);
+
+    if (order.event.kind === "PIZZA_SPLIT" && order.event.costRegisteredAt) {
+      await pizzaSplitService.recomputeSplit(order.event.id);
+    }
+
+    await auditService.log({
+      actorId,
+      action: AuditAction.ORDER_CANCELLED,
+      targetId: id,
+      metadata: { eventId: order.event.id },
+    });
+
+    return toCancelOrderDto(cancelled);
   }
 
   async getByEventId(eventId: string) {
@@ -236,12 +449,17 @@ class OrderService {
       throw new HttpError(404, "Evento não encontrado.");
     }
 
+    // Racha — dashboard de recomendação (RP6) em vez dos totais do pastel.
+    if (event.kind === "PIZZA_SPLIT") {
+      return pizzaSplitService.getDashboard(eventId);
+    }
+
     const orders = await orderRepository.findManyByEventId(eventId);
 
     return toEventSummaryDto(event, orders);
   }
 
-  private normalizeItems(items: CreateOrderInput["items"]) {
+  private normalizeItems(items: NonNullable<CreateOrderInput["items"]>) {
     const itemsById = new Map<string, { itemId: string; quantity: number }>();
 
     for (const item of items) {

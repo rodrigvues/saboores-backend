@@ -44,6 +44,13 @@ const envSchema = z.object({
   // cron in-process e define sua cadência.
   JOBS_ENABLED: z.string().optional(),
   NOTIFY_ROUNDS_CRON: z.string().default("0 */3 * * *"),
+  // ── Racha de pizza: defaults do motor de cálculo ────────────
+  // Valor médio (R$) de uma pizza grande e nº de fatias por pizza. Servem de
+  // pré-preenchimento na criação da rodada; cada rodada pode sobrescrever.
+  DEFAULT_LARGE_PIZZA_PRICE: z.coerce.number().positive().default(60),
+  DEFAULT_SLICES_PER_PIZZA: z.coerce.number().int().positive().default(8),
+  // Bucket do Supabase Storage para a evidência de custo do racha (RP9).
+  SUPABASE_EVENT_EVIDENCE_BUCKET: z.string().default("event-evidence"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -99,6 +106,10 @@ export const env = {
       ? raw.JOBS_ENABLED === "true"
       : raw.NODE_ENV !== "test",
   notifyRoundsCron: raw.NOTIFY_ROUNDS_CRON,
+  // Racha de pizza — defaults do motor + bucket de evidência.
+  defaultLargePizzaPrice: raw.DEFAULT_LARGE_PIZZA_PRICE,
+  defaultSlicesPerPizza: raw.DEFAULT_SLICES_PER_PIZZA,
+  supabaseEventEvidenceBucket: raw.SUPABASE_EVENT_EVIDENCE_BUCKET,
 } as const;
 
 // Em produção, e-mail é necessário (fluxo "esqueci a senha"). Em dev, o serviço

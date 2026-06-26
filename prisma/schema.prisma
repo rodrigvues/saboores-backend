@@ -18,6 +18,13 @@ enum EventStatus {
   CLOSED
 }
 
+// Modo da rodada. STANDARD = venda a preço fixo (pastel, fluxo original).
+// PIZZA_SPLIT = racha de pizza (rateio igualitário do custo real).
+enum EventKind {
+  STANDARD
+  PIZZA_SPLIT
+}
+
 enum OrderStatus {
   PENDING
   CONFIRMED
@@ -99,7 +106,10 @@ model Type {
 model Event {
   id              String      @id @default(cuid())
   name            String
-  typeId          String
+  // Racha de pizza não usa Type — por isso `typeId` é opcional. O pastel
+  // (STANDARD) continua exigindo um Type, validado no service por `kind`.
+  typeId          String?
+  kind            EventKind   @default(STANDARD)
   startsAt        DateTime
   endsAt          DateTime
   status          EventStatus @default(DRAFT)
@@ -110,10 +120,26 @@ model Event {
   // Limite de itens por pedido nesta rodada (configurável por evento; ainda sem CRUD).
   maxItemsPerOrder Int        @default(15)
 
-  type          Type             @relation(fields: [typeId], references: [id])
+  // ── Racha de pizza (PIZZA_SPLIT): config do motor + PIX (opcionais p/ STANDARD) ──
+  maxFlavorsPerOrder Int?     // nº de sabores por pessoa (default 3 na UI; 2..10)
+  slicesPerPizza     Int?     // fatias por pizza grande (motor)
+  avgLargePizzaPrice Decimal? // média do valor da pizza grande (motor)
+  pixKey             String?  // PIX da rodada (obrigatório no racha)
+  pixQrUrl           String?
+
+  // ── Custo real + evidência + ciclo de vida derivado (RP9/RP10) ──
+  actualTotalCost  Decimal?
+  costEvidenceUrl  String?
+  costRegisteredAt DateTime?
+  choicesLockedAt  DateTime?
+
+  // onDelete: Restrict explícito — mantém a FK existente (não vira SET NULL ao
+  // tornar `typeId` opcional). Evita drift de migração e preserva o comportamento.
+  type          Type?            @relation(fields: [typeId], references: [id], onDelete: Restrict)
   createdByUser User             @relation(fields: [createdByUserId], references: [id])
   orders        Order[]
   organizers    EventOrganizer[] // F3.1 — quem pode gerenciar este evento
+  flavors       Flavor[] // sabores extras deste evento (eventId preenchido)
 
   @@index([typeId])
   @@index([createdByUserId])
@@ -144,10 +170,16 @@ model Order {
   cancelledAt   DateTime?
   // Parte 2 — entrega do pedido (status DELIVERED).
   deliveredAt   DateTime?
+  // ── Racha de pizza: Order = participação (1 por usuário/evento). `createdAt`
+  //    governa a janela de edição de 10 min. ──
+  slicesWanted  Int?     // "quantas fatias você geralmente come" (motor)
+  amountDue     Decimal? // valor real após o rateio igualitário (snapshot no custo)
 
-  user       User        @relation(fields: [userId], references: [id])
-  event      Event       @relation(fields: [eventId], references: [id])
-  orderItems OrderItem[]
+  user        User             @relation(fields: [userId], references: [id])
+  event       Event            @relation(fields: [eventId], references: [id])
+  orderItems  OrderItem[]
+  flavorVotes OrderFlavor[] // votos de sabor (racha)
+  preferences OrderPreference[] // respostas do formulário (racha)
 
   @@index([userId])
   @@index([eventId])
@@ -166,6 +198,64 @@ model OrderItem {
 
   @@index([orderId])
   @@index([itemId])
+}
+
+// RP2 — catálogo de sabores do racha de pizza (sem preço). `eventId = null` é um
+// sabor padrão global (gerido por ADMIN); preenchido = extra de um evento (gerido
+// por quem cuida do evento). `isSweet` separa doces de salgados na UI/dashboard.
+model Flavor {
+  id              String   @id @default(cuid())
+  name            String
+  isSweet         Boolean  @default(false)
+  eventId         String? // null = padrão global; preenchido = extra do evento
+  createdByUserId String? // quem cadastrou (auditoria leve; sem FK)
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+
+  event Event?        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votes OrderFlavor[]
+
+  @@index([eventId])
+}
+
+// RP4 — perguntas sim/não do formulário de preferências (seedadas). `key` dá a
+// semântica usada pelo motor para virar sugestão no dashboard (ex.: "beverage").
+model PreferenceQuestion {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  text      String
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  answers OrderPreference[]
+}
+
+// RP5 — voto de sabor ("topo esse"). Alimenta "mais pedidos"; não é compra.
+model OrderFlavor {
+  id       String @id @default(cuid())
+  orderId  String
+  flavorId String
+
+  order  Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  flavor Flavor @relation(fields: [flavorId], references: [id])
+
+  @@unique([orderId, flavorId])
+  @@index([orderId])
+  @@index([flavorId])
+}
+
+// RP4 — resposta sim/não de um participante a uma pergunta seedada.
+model OrderPreference {
+  id         String  @id @default(cuid())
+  orderId    String
+  questionId String
+  answer     Boolean
+
+  order    Order              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  question PreferenceQuestion @relation(fields: [questionId], references: [id])
+
+  @@unique([orderId, questionId])
+  @@index([orderId])
 }
 
 // F3.1/F3.8 — acesso explícito de um ORGANIZER a um evento.

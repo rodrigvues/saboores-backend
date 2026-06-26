@@ -2,6 +2,21 @@ import type { Prisma } from "@prisma/client";
 import { prisma } from "../lib/prisma.js";
 import { ACTIVE_PARTICIPATION_STATUSES } from "../constants/order.js";
 
+/** Participação no racha com votos e respostas (resposta do create/edit). */
+const pizzaParticipationInclude = {
+  event: { select: { id: true, name: true } },
+  flavorVotes: {
+    select: { flavor: { select: { id: true, name: true, isSweet: true } } },
+  },
+  preferences: {
+    select: {
+      questionId: true,
+      answer: true,
+      question: { select: { key: true, text: true } },
+    },
+  },
+} satisfies Prisma.OrderInclude;
+
 class OrderRepository {
   async findEventForOrder(eventId: string) {
     return prisma.event.findUnique({
@@ -12,9 +27,114 @@ class OrderRepository {
         id: true,
         name: true,
         typeId: true,
+        kind: true,
         status: true,
         maxItemsPerOrder: true,
+        maxFlavorsPerOrder: true,
+        slicesPerPizza: true,
+        avgLargePizzaPrice: true,
+        choicesLockedAt: true,
+        createdByUserId: true,
       },
+    });
+  }
+
+  /** Racha — participação ativa do usuário neste evento (entrada única). */
+  async findUserParticipation(eventId: string, userId: string) {
+    return prisma.order.findFirst({
+      where: { eventId, userId, status: { in: ACTIVE_PARTICIPATION_STATUSES } },
+      select: { id: true, createdAt: true, status: true },
+    });
+  }
+
+  /** Racha — participação do usuário com votos/respostas (tela de participação). */
+  async findUserParticipationDetail(eventId: string, userId: string) {
+    return prisma.order.findFirst({
+      where: { eventId, userId, status: { in: ACTIVE_PARTICIPATION_STATUSES } },
+      include: pizzaParticipationInclude,
+    });
+  }
+
+  /** Racha — cria a participação (votos + fatias + respostas) numa transação. */
+  async createParticipation(data: {
+    userId: string;
+    eventId: string;
+    slicesWanted: number;
+    flavorIds: string[];
+    answers: { questionId: string; answer: boolean }[];
+  }) {
+    return prisma.order.create({
+      data: {
+        userId: data.userId,
+        eventId: data.eventId,
+        slicesWanted: data.slicesWanted,
+        flavorVotes: {
+          create: data.flavorIds.map((flavorId) => ({ flavorId })),
+        },
+        preferences: {
+          create: data.answers.map((answer) => ({
+            questionId: answer.questionId,
+            answer: answer.answer,
+          })),
+        },
+      },
+      include: pizzaParticipationInclude,
+    });
+  }
+
+  /** Racha — dados para validar a edição (dono + janela + estado do evento). */
+  async findParticipationForEdit(id: string) {
+    return prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        createdAt: true,
+        event: {
+          select: {
+            id: true,
+            status: true,
+            kind: true,
+            maxFlavorsPerOrder: true,
+            maxItemsPerOrder: true,
+            slicesPerPizza: true,
+            avgLargePizzaPrice: true,
+            choicesLockedAt: true,
+          },
+        },
+      },
+    });
+  }
+
+  /** Racha — substitui votos/respostas e atualiza fatias (full replace). */
+  async updateParticipation(
+    id: string,
+    data: {
+      slicesWanted: number;
+      flavorIds: string[];
+      answers: { questionId: string; answer: boolean }[];
+    },
+  ) {
+    return prisma.$transaction(async (tx) => {
+      await tx.orderFlavor.deleteMany({ where: { orderId: id } });
+      await tx.orderPreference.deleteMany({ where: { orderId: id } });
+      return tx.order.update({
+        where: { id },
+        data: {
+          slicesWanted: data.slicesWanted,
+          flavorVotes: {
+            create: data.flavorIds.map((flavorId) => ({ flavorId })),
+          },
+          preferences: {
+            create: data.answers.map((answer) => ({
+              questionId: answer.questionId,
+              answer: answer.answer,
+            })),
+          },
+        },
+        include: pizzaParticipationInclude,
+      });
     });
   }
 
@@ -27,10 +147,32 @@ class OrderRepository {
         id: true,
         name: true,
         status: true,
+        kind: true,
         startsAt: true,
         endsAt: true,
       },
     });
+  }
+
+  /**
+   * Racha — agrega participação válida por evento (nº de pessoas + total de
+   * fatias). Base da estimativa "≈ R$ X/pessoa" no card (RP7), em 1 consulta.
+   */
+  async aggregateParticipationByEvents(eventIds: string[]) {
+    const rows = await prisma.order.groupBy({
+      by: ["eventId"],
+      where: {
+        eventId: { in: eventIds },
+        status: { in: ACTIVE_PARTICIPATION_STATUSES },
+      },
+      _count: { _all: true },
+      _sum: { slicesWanted: true },
+    });
+    return rows.map((row) => ({
+      eventId: row.eventId,
+      participants: row._count._all,
+      totalSlices: row._sum.slicesWanted ?? 0,
+    }));
   }
 
   async findActiveItemsByIds(itemIds: string[]) {
@@ -146,6 +288,66 @@ class OrderRepository {
         event: {
           select: {
             status: true,
+            kind: true,
+          },
+        },
+      },
+    });
+  }
+
+  /**
+   * Racha — participações válidas com votos, respostas e valor devido. Base do
+   * dashboard (RP6), do rateio (RP10) e das pendências/PIX (RP11).
+   */
+  async findValidParticipationsForEvent(eventId: string) {
+    return prisma.order.findMany({
+      where: { eventId, status: { in: ACTIVE_PARTICIPATION_STATUSES } },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        userId: true,
+        status: true,
+        paymentStatus: true,
+        slicesWanted: true,
+        amountDue: true,
+        user: { select: { id: true, name: true, surname: true, email: true } },
+        flavorVotes: {
+          select: { flavor: { select: { id: true, name: true, isSweet: true } } },
+        },
+        preferences: { select: { questionId: true, answer: true } },
+      },
+    });
+  }
+
+  /** Racha — grava o `amountDue` (snapshot do rateio) de várias participações. */
+  async setAmountDues(
+    updates: { orderId: string; amountDue: Prisma.Decimal }[],
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? prisma;
+    for (const update of updates) {
+      await client.order.update({
+        where: { id: update.orderId },
+        data: { amountDue: update.amountDue },
+      });
+    }
+  }
+
+  /** Racha — dados para o cancelamento pelo organizador (RP11) + recálculo. */
+  async findByIdForOrganizerCancel(id: string) {
+    return prisma.order.findUnique({
+      where: { id },
+      select: {
+        id: true,
+        status: true,
+        paymentStatus: true,
+        event: {
+          select: {
+            id: true,
+            kind: true,
+            costRegisteredAt: true,
+            actualTotalCost: true,
+            createdByUserId: true,
           },
         },
       },

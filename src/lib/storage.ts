@@ -50,3 +50,37 @@ export async function uploadAvatar(params: {
   const { data } = client.storage.from(bucket).getPublicUrl(path);
   return `${data.publicUrl}?v=${Date.now()}`;
 }
+
+/**
+ * Racha (RP9) — sobe a evidência de custo (comprovante/nota) de um evento. Chave
+ * fixa por evento (`<eventId>`) com `upsert`, igual ao avatar. Bucket próprio.
+ *
+ * SETUP: ver docs/CONFIGURACAO-NECESSARIA.md (bucket `event-evidence`).
+ */
+export async function uploadEventEvidence(params: {
+  eventId: string;
+  buffer: Buffer;
+  contentType: string;
+}): Promise<string> {
+  if (!client) {
+    throw new HttpError(
+      503,
+      "Upload de evidência indisponível: o storage ainda não foi configurado.",
+    );
+  }
+
+  const bucket = env.supabaseEventEvidenceBucket;
+  const path = params.eventId;
+
+  const { error } = await client.storage.from(bucket).upload(path, params.buffer, {
+    contentType: params.contentType,
+    upsert: true,
+  });
+  if (error) {
+    console.error("[storage] falha no upload da evidência:", error);
+    throw new HttpError(502, "Não foi possível enviar a imagem. Tente novamente.");
+  }
+
+  const { data } = client.storage.from(bucket).getPublicUrl(path);
+  return `${data.publicUrl}?v=${Date.now()}`;
+}

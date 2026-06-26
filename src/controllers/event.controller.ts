@@ -1,7 +1,13 @@
 import type { Request, Response } from "express";
 import { eventService } from "../services/event.service.js";
 import { orderService } from "../services/order.service.js";
-import { createEventSchema, updateEventSchema } from "../schemas/event.schema.js";
+import { pizzaSplitService } from "../services/pizzaSplit.service.js";
+import {
+  createEventSchema,
+  registerCostSchema,
+  updateEventSchema,
+} from "../schemas/event.schema.js";
+import { uploadEventEvidence } from "../lib/storage.js";
 import { HttpError } from "../utils/http-error.js";
 
 function handleError(error: unknown, res: Response) {
@@ -120,6 +126,54 @@ class EventController {
       const participants = await eventService.getParticipants(req.params.id as string);
 
       return res.json(participants);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
+
+  /** POST /events/:id/lock — racha: fecha as escolhas (RP9). */
+  async lock(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    try {
+      const dashboard = await pizzaSplitService.lockChoices({
+        eventId: req.params.id as string,
+        actorId: req.user.id,
+      });
+      return res.json(dashboard);
+    } catch (error) {
+      return handleError(error, res);
+    }
+  }
+
+  /** POST /events/:id/cost — racha: custo real + evidência → rateio (RP9/RP10). */
+  async cost(req: Request, res: Response) {
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    const parsed = registerCostSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({
+        message: parsed.error.issues[0]?.message ?? "Dados inválidos.",
+      });
+    }
+    try {
+      let evidenceUrl: string | null = null;
+      if (req.file) {
+        evidenceUrl = await uploadEventEvidence({
+          eventId: req.params.id as string,
+          buffer: req.file.buffer,
+          contentType: req.file.mimetype,
+        });
+      }
+      const dashboard = await pizzaSplitService.registerCost({
+        eventId: req.params.id as string,
+        actorId: req.user.id,
+        actualTotalCost: parsed.data.actualTotalCost,
+        evidenceUrl,
+      });
+      return res.json(dashboard);
     } catch (error) {
       return handleError(error, res);
     }

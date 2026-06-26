@@ -15,6 +15,9 @@ export const AuditAction = {
   TYPE_CREATE: "TYPE_CREATE",
   TYPE_UPDATE: "TYPE_UPDATE",
   ORDER_DELIVERED: "ORDER_DELIVERED",
+  ORDER_CANCELLED: "ORDER_CANCELLED",
+  EVENT_CHOICES_LOCKED: "EVENT_CHOICES_LOCKED",
+  EVENT_COST_REGISTERED: "EVENT_COST_REGISTERED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

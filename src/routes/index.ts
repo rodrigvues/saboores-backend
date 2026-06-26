@@ -6,6 +6,8 @@ import { orderRoutes } from "./order.routes.js";
 import { userRoutes } from "./user.routes.js";
 import { profileRoutes } from "./profile.routes.js";
 import { rankingRoutes } from "./ranking.routes.js";
+import { flavorRoutes } from "./flavor.routes.js";
+import { preferenceQuestionRoutes } from "./preferenceQuestion.routes.js";
 
 const routes = Router();
 
@@ -16,5 +18,7 @@ routes.use("/orders", orderRoutes);
 routes.use("/users", userRoutes);
 routes.use("/profile", profileRoutes);
 routes.use("/ranking", rankingRoutes);
+routes.use("/flavors", flavorRoutes);
+routes.use("/preference-questions", preferenceQuestionRoutes);
 
 export { routes };
