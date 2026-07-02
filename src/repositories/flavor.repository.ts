@@ -43,6 +43,23 @@ class FlavorRepository {
     });
   }
 
+  /**
+   * Nomes ativos que ocupam o "namespace" de um escopo, para barrar duplicatas:
+   * globais (`eventId = null`) e, se houver evento, também seus extras.
+   */
+  async findActiveNames(params: { eventId: string | null; tx?: Tx }) {
+    const client = params.tx ?? prisma;
+    return client.flavor.findMany({
+      where: {
+        active: true,
+        OR: params.eventId
+          ? [{ eventId: null }, { eventId: params.eventId }]
+          : [{ eventId: null }],
+      },
+      select: { name: true },
+    });
+  }
+
   /** Verifica que todos os ids existem e são válidos para o evento (globais+extras). */
   async findValidForEvent(eventId: string, ids: string[]) {
     return prisma.flavor.findMany({

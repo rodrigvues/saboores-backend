@@ -1,3 +1,4 @@
+import type { Prisma, PrismaClient } from "@prisma/client";
 import { toFlavorDto, type FlavorDto } from "../dtos/flavor.dto.js";
 import { flavorRepository } from "../repositories/flavor.repository.js";
 import { eventRepository } from "../repositories/event.repository.js";
@@ -6,6 +7,12 @@ import { HttpError } from "../utils/http-error.js";
 import type { CreateFlavorInput, UpdateFlavorInput } from "../schemas/flavor.schema.js";
 
 type Requester = { userId: string; isAdmin: boolean };
+type Tx = Prisma.TransactionClient | PrismaClient;
+
+/** Chave de comparação de nomes: sem espaços nas pontas, espaços colapsados, minúsculo. */
+function flavorNameKey(name: string): string {
+  return name.trim().replace(/\s+/g, " ").toLowerCase();
+}
 
 class FlavorService {
   /** Sabores para a escolha do participante numa rodada (globais + extras do evento). */
@@ -31,6 +38,39 @@ class FlavorService {
     );
   }
 
+  /**
+   * Barra nomes duplicados no mesmo escopo (global, ou global + extras do evento),
+   * tanto colisões com sabores já existentes quanto repetições dentro do próprio
+   * lote. Comparação ignora caixa e espaços. Lança 400 na primeira duplicata.
+   */
+  async assertNamesAvailable(params: {
+    names: string[];
+    eventId: string | null;
+    tx?: Tx;
+  }): Promise<void> {
+    if (params.names.length === 0) return;
+
+    const seen = new Set<string>();
+    for (const name of params.names) {
+      const key = flavorNameKey(name);
+      if (seen.has(key)) {
+        throw new HttpError(400, `O sabor "${name.trim()}" está repetido na lista.`);
+      }
+      seen.add(key);
+    }
+
+    const existing = await flavorRepository.findActiveNames({
+      eventId: params.eventId,
+      tx: params.tx,
+    });
+    const taken = new Set(existing.map((flavor) => flavorNameKey(flavor.name)));
+    for (const name of params.names) {
+      if (taken.has(flavorNameKey(name))) {
+        throw new HttpError(400, `Já existe um sabor chamado "${name.trim()}".`);
+      }
+    }
+  }
+
   async create(params: {
     requester: Requester;
     input: CreateFlavorInput;
@@ -39,6 +79,7 @@ class FlavorService {
     const eventId = input.eventId ?? null;
 
     await this.assertCanManage(eventId, requester);
+    await this.assertNamesAvailable({ names: [input.name], eventId });
 
     const flavor = await flavorRepository.create({
       name: input.name,

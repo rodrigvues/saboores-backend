@@ -6,6 +6,7 @@ import { eventRepository } from "../repositories/event.repository.js";
 import { typeRepository } from "../repositories/type.repository.js";
 import { orderRepository } from "../repositories/order.repository.js";
 import { flavorRepository } from "../repositories/flavor.repository.js";
+import { flavorService } from "./flavor.service.js";
 import { prisma } from "../lib/prisma.js";
 import { env } from "../config/env.js";
 import { eventOrganizerService } from "./eventOrganizer.service.js";
@@ -126,8 +127,15 @@ class EventService {
         tx,
       });
 
-      // Sabores extras informados na criação (RP3).
-      for (const flavor of input.extraFlavors ?? []) {
+      // Sabores extras informados na criação (RP3). Barra nomes que já existem
+      // como sabor padrão (ou repetidos no próprio lote) → 400.
+      const extras = input.extraFlavors ?? [];
+      await flavorService.assertNamesAvailable({
+        names: extras.map((flavor) => flavor.name),
+        eventId: event.id,
+        tx,
+      });
+      for (const flavor of extras) {
         await flavorRepository.create({
           name: flavor.name,
           isSweet: flavor.isSweet ?? false,
