@@ -35,6 +35,9 @@ class OrderRepository {
         avgLargePizzaPrice: true,
         choicesLockedAt: true,
         createdByUserId: true,
+        // Encomenda — taxa de serviço a "congelar" no pedido.
+        hasServiceFee: true,
+        serviceFeeAmount: true,
       },
     });
   }
@@ -195,6 +198,8 @@ class OrderRepository {
   async create(data: {
     userId: string;
     eventId: string;
+    /** Snapshot da taxa de serviço da rodada (null = sem taxa). */
+    serviceFee: Prisma.Decimal | null;
     items: {
       itemId: string;
       quantity: number;
@@ -206,6 +211,7 @@ class OrderRepository {
         data: {
           userId: data.userId,
           eventId: data.eventId,
+          serviceFee: data.serviceFee,
           orderItems: {
             create: data.items.map((item) => ({
               itemId: item.itemId,
@@ -490,6 +496,7 @@ class OrderRepository {
       where: { id },
       select: {
         id: true,
+        serviceFee: true,
         user: { select: { name: true, email: true } },
         event: { select: { id: true, name: true } },
         orderItems: {

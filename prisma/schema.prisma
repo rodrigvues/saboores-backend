@@ -124,8 +124,12 @@ model Event {
   maxFlavorsPerOrder Int?     // nº de sabores por pessoa (default 3 na UI; 2..10)
   slicesPerPizza     Int?     // fatias por pizza grande (motor)
   avgLargePizzaPrice Decimal? // média do valor da pizza grande (motor)
-  pixKey             String?  // PIX da rodada (obrigatório no racha)
+  pixKey             String?  // PIX da rodada (obrigatório no racha e na criação de encomenda)
   pixQrUrl           String?
+
+  // ── Encomenda (STANDARD): taxa de serviço por pedido, opcional ──
+  hasServiceFee    Boolean  @default(false)
+  serviceFeeAmount Decimal? // valor da taxa quando ativa
 
   // ── Custo real + evidência + ciclo de vida derivado (RP9/RP10) ──
   actualTotalCost  Decimal?
@@ -174,6 +178,9 @@ model Order {
   //    governa a janela de edição de 10 min. ──
   slicesWanted  Int?     // "quantas fatias você geralmente come" (motor)
   amountDue     Decimal? // valor real após o rateio igualitário (snapshot no custo)
+  // Encomenda — taxa de serviço da rodada no momento do pedido (snapshot, como
+  // `unitPrice` do OrderItem; null = pedido sem taxa).
+  serviceFee    Decimal?
 
   user        User             @relation(fields: [userId], references: [id])
   event       Event            @relation(fields: [eventId], references: [id])

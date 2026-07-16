@@ -32,6 +32,8 @@ type EventDetailsRecord = {
   avgLargePizzaPrice: Prisma.Decimal | null;
   pixKey: string | null;
   pixQrUrl: string | null;
+  hasServiceFee: boolean;
+  serviceFeeAmount: Prisma.Decimal | null;
   actualTotalCost: Prisma.Decimal | null;
   costEvidenceUrl: string | null;
   costRegisteredAt: Date | null;
@@ -90,6 +92,11 @@ export type EventDetailsDto = {
   createdAt: Date;
   maxItemsPerOrder: number;
   kind: EventKind;
+  /** Taxa de serviço por pedido (encomenda). Null quando a rodada não cobra taxa. */
+  serviceFee: string | null;
+  /** Recebimento PIX da rodada (vale para os dois modos). */
+  pixKey: string | null;
+  pixQrUrl: string | null;
   type: {
     id: string;
     title: string;
@@ -143,6 +150,12 @@ export function toEventDetailsDto(event: EventDetailsRecord): EventDetailsDto {
     createdAt: event.createdAt,
     maxItemsPerOrder: event.maxItemsPerOrder,
     kind: event.kind,
+    serviceFee:
+      event.hasServiceFee && event.serviceFeeAmount
+        ? event.serviceFeeAmount.toString()
+        : null,
+    pixKey: event.pixKey,
+    pixQrUrl: event.pixQrUrl,
     type: event.type
       ? {
           id: event.type.id,

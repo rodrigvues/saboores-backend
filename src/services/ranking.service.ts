@@ -106,17 +106,18 @@ class RankingService {
         b.points - a.points || a.displayName.localeCompare(b.displayName, "pt-BR"),
     );
 
-    // Posição de competição: empates compartilham a posição (1,1,3,...) — RN3.
+    // Posição densa: empates compartilham a posição e o seguinte vem logo após,
+    // sem pular números (1,1,2,2,2,3,...) — RN3.
     const entries: RankingEntry[] = [];
     let position = 0;
     let previousPoints: number | null = null;
-    ranked.forEach((entry, index) => {
+    for (const entry of ranked) {
       if (previousPoints === null || entry.points !== previousPoints) {
-        position = index + 1;
+        position += 1;
         previousPoints = entry.points;
       }
       entries.push({ position, ...entry });
-    });
+    }
 
     cache = {
       entries,

@@ -33,6 +33,9 @@ const detailSelect = {
   avgLargePizzaPrice: true,
   pixKey: true,
   pixQrUrl: true,
+  // Encomenda — taxa de serviço (null/false no racha).
+  hasServiceFee: true,
+  serviceFeeAmount: true,
   actualTotalCost: true,
   costEvidenceUrl: true,
   costRegisteredAt: true,
@@ -96,6 +99,8 @@ class EventRepository {
     avgLargePizzaPrice?: number | null;
     pixKey?: string | null;
     pixQrUrl?: string | null;
+    hasServiceFee?: boolean;
+    serviceFeeAmount?: number | null;
     tx?: Tx;
   }) {
     const client = data.tx ?? prisma;
@@ -113,6 +118,8 @@ class EventRepository {
         avgLargePizzaPrice: data.avgLargePizzaPrice ?? null,
         pixKey: data.pixKey ?? null,
         pixQrUrl: data.pixQrUrl ?? null,
+        hasServiceFee: data.hasServiceFee ?? false,
+        serviceFeeAmount: data.serviceFeeAmount ?? null,
       },
       select: detailSelect,
     });
@@ -130,6 +137,8 @@ class EventRepository {
       avgLargePizzaPrice?: number;
       pixKey?: string;
       pixQrUrl?: string;
+      hasServiceFee?: boolean;
+      serviceFeeAmount?: number | null;
     },
   ) {
     return prisma.event.update({ where: { id }, data, select: detailSelect });

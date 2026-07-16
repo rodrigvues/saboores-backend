@@ -98,9 +98,14 @@ class OrderService {
       };
     });
 
+    // Taxa de serviço da rodada vira snapshot do pedido (como o unitPrice dos itens).
+    const serviceFee =
+      event.hasServiceFee && event.serviceFeeAmount ? event.serviceFeeAmount : null;
+
     const order = await orderRepository.create({
       userId,
       eventId: event.id,
+      serviceFee,
       items: orderItems,
     });
 
@@ -416,10 +421,13 @@ class OrderService {
       if (!details) return;
 
       if (kind === "payment") {
-        const total = details.orderItems.reduce(
-          (acc, oi) => acc.plus(oi.unitPrice.mul(oi.quantity)),
-          new Prisma.Decimal(0),
-        );
+        // Total transparente: itens + taxa de serviço (quando o pedido tem).
+        const total = details.orderItems
+          .reduce(
+            (acc, oi) => acc.plus(oi.unitPrice.mul(oi.quantity)),
+            new Prisma.Decimal(0),
+          )
+          .plus(details.serviceFee ?? 0);
         await emailService.sendPaymentConfirmed({
           to: details.user.email,
           name: details.user.name,

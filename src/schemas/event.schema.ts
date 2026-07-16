@@ -25,7 +25,8 @@ const extraFlavorSchema = z.object({
 /**
  * POST /events — união por `kind`:
  * - STANDARD (default): usa **um Tipo existente** (`typeId`) **ou** **um Tipo novo
- *   inline** (`newType`). Exatamente um dos dois (pastel).
+ *   inline** (`newType`). Exatamente um dos dois (encomenda/pastel). PIX
+ *   obrigatório + taxa de serviço opcional (`hasServiceFee`/`serviceFeeAmount`).
  * - PIZZA_SPLIT: **sem** Type; config do motor (`maxFlavorsPerOrder`, `slicesPerPizza`,
  *   `avgLargePizzaPrice`) + PIX obrigatório. Defaults aplicados no service.
  *
@@ -41,6 +42,8 @@ export const createEventSchema = z
     // STANDARD
     typeId: z.string().trim().min(1).optional(),
     newType: newTypeSchema.optional(),
+    hasServiceFee: z.boolean().optional(),
+    serviceFeeAmount: z.coerce.number().optional(),
     // PIZZA_SPLIT (defaults no service)
     maxFlavorsPerOrder: z.coerce.number().int().optional(),
     slicesPerPizza: z.coerce.number().int().optional(),
@@ -58,14 +61,34 @@ export const createEventSchema = z
       });
     }
 
-    if (d.kind === "PIZZA_SPLIT") {
-      if (!d.pixKey || d.pixKey.length === 0) {
+    // PIX da rodada é obrigatório nos dois modos (o pagamento vai direto ao organizador).
+    if (!d.pixKey || d.pixKey.length === 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["pixKey"],
+        message: "Informe a chave PIX da rodada (o dinheiro vai para você).",
+      });
+    }
+
+    // Taxa de serviço só existe na encomenda; ativa exige valor > 0.
+    if (d.hasServiceFee) {
+      if (d.kind !== "STANDARD") {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["pixKey"],
-          message: "Informe a chave PIX da rodada (o dinheiro vai para você).",
+          path: ["hasServiceFee"],
+          message: "Taxa de serviço só se aplica a rodadas de encomenda.",
         });
       }
+      if (d.serviceFeeAmount === undefined || d.serviceFeeAmount <= 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["serviceFeeAmount"],
+          message: "Informe o valor da taxa (maior que zero).",
+        });
+      }
+    }
+
+    if (d.kind === "PIZZA_SPLIT") {
       if (
         d.maxFlavorsPerOrder !== undefined &&
         (d.maxFlavorsPerOrder < 2 || d.maxFlavorsPerOrder > 10)
@@ -115,9 +138,16 @@ export const updateEventSchema = z
     avgLargePizzaPrice: z.coerce.number().positive().optional(),
     pixKey: z.string().trim().min(1).optional(),
     pixQrUrl: z.string().trim().url("QR PIX deve ser uma URL válida.").optional(),
+    // Encomenda — taxa de serviço (desligar zera o valor no service).
+    hasServiceFee: z.boolean().optional(),
+    serviceFeeAmount: z.coerce.number().positive("Informe o valor da taxa (maior que zero).").optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
     message: "Nada para atualizar.",
+  })
+  .refine((d) => !d.hasServiceFee || d.serviceFeeAmount !== undefined, {
+    path: ["serviceFeeAmount"],
+    message: "Informe o valor da taxa (maior que zero).",
   });
 
 /** POST /events/:id/cost — custo real (multipart; evidência é o arquivo). */

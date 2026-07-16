@@ -80,6 +80,10 @@ class EventService {
         endsAt: input.endsAt,
         status: input.status,
         createdByUserId: actorId,
+        pixKey: input.pixKey ?? null,
+        pixQrUrl: input.pixQrUrl ?? null,
+        hasServiceFee: input.hasServiceFee ?? false,
+        serviceFeeAmount: input.hasServiceFee ? input.serviceFeeAmount ?? null : null,
         tx,
       });
 
@@ -181,23 +185,37 @@ class EventService {
       throw new HttpError(400, "O término deve ser após o início.");
     }
 
+    // PIX vale para os dois modos; o motor do racha continua exclusivo dele.
     const pizzaConfigProvided =
       params.input.maxFlavorsPerOrder !== undefined ||
       params.input.slicesPerPizza !== undefined ||
-      params.input.avgLargePizzaPrice !== undefined ||
+      params.input.avgLargePizzaPrice !== undefined;
+
+    if (pizzaConfigProvided && current.kind !== "PIZZA_SPLIT") {
+      throw new HttpError(400, "Configuração de racha não se aplica a esta rodada.");
+    }
+
+    const pizzaFrozenTouched =
+      pizzaConfigProvided ||
       params.input.pixKey !== undefined ||
       params.input.pixQrUrl !== undefined;
+    if (
+      current.kind === "PIZZA_SPLIT" &&
+      pizzaFrozenTouched &&
+      current.costRegisteredAt
+    ) {
+      throw new HttpError(
+        409,
+        "O custo já foi registrado; a configuração está congelada.",
+      );
+    }
 
-    if (pizzaConfigProvided) {
-      if (current.kind !== "PIZZA_SPLIT") {
-        throw new HttpError(400, "Configuração de racha não se aplica a esta rodada.");
-      }
-      if (current.costRegisteredAt) {
-        throw new HttpError(
-          409,
-          "O custo já foi registrado; a configuração está congelada.",
-        );
-      }
+    // Taxa de serviço só existe na encomenda (STANDARD).
+    const feeProvided =
+      params.input.hasServiceFee !== undefined ||
+      params.input.serviceFeeAmount !== undefined;
+    if (feeProvided && current.kind !== "STANDARD") {
+      throw new HttpError(400, "Taxa de serviço só se aplica a rodadas de encomenda.");
     }
 
     const updated = await eventRepository.update(params.eventId, {
@@ -210,6 +228,10 @@ class EventService {
       avgLargePizzaPrice: params.input.avgLargePizzaPrice,
       pixKey: params.input.pixKey,
       pixQrUrl: params.input.pixQrUrl,
+      hasServiceFee: params.input.hasServiceFee,
+      // Desligar a taxa zera o valor guardado (evita "taxa fantasma" ao religar).
+      serviceFeeAmount:
+        params.input.hasServiceFee === false ? null : params.input.serviceFeeAmount,
     });
 
     await auditService.log({
