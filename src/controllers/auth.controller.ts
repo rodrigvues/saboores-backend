@@ -34,7 +34,11 @@ function clearRefreshCookie(res: Response) {
 
 function handleError(error: unknown, res: Response) {
   if (error instanceof HttpError) {
-    return res.status(error.statusCode).json({ message: error.message });
+    return res.status(error.statusCode).json({
+      message: error.message,
+      ...(error.code ? { code: error.code } : {}),
+      ...(error.details !== undefined ? { current: error.details } : {}),
+    });
   }
   throw error;
 }
