@@ -15,6 +15,7 @@ const listSelect = {
   slicesPerPizza: true,
   avgLargePizzaPrice: true,
   type: { select: { id: true, name: true, description: true } },
+  goal: { select: { name: true, targetAmountCents: true, reachedAt: true } },
 } satisfies Prisma.EventSelect;
 
 /** Projeção completa usada no detalhe (com itens ativos e criador). */
@@ -54,6 +55,7 @@ const detailSelect = {
     },
   },
   createdByUser: { select: { id: true, name: true, surname: true } },
+  goal: { select: { name: true, targetAmountCents: true, reachedAt: true } },
 } satisfies Prisma.EventSelect;
 
 class EventRepository {

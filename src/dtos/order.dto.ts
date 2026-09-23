@@ -1,5 +1,6 @@
 import { Prisma, type EventStatus, type OrderStatus, type PaymentStatus } from "@prisma/client";
 import { PIZZA_EDIT_WINDOW_MS } from "../constants/order.js";
+import type { EventGoalDto } from "./eventGoal.dto.js";
 
 type OrderItemRecord = {
   quantity: number;
@@ -30,6 +31,8 @@ type OrderBaseRecord = {
   serviceFee?: Prisma.Decimal | null;
   /** Snapshot do percentual aplicado (só rótulo). Null = pedido sem taxa. */
   serviceFeePercent?: Prisma.Decimal | null;
+  /** Snapshot: este pedido compõe a meta da rodada? */
+  countsTowardGoal?: boolean;
   event?: OrderEventRecord;
   orderItems: OrderItemRecord[];
 };
@@ -74,6 +77,8 @@ export type CreatedOrderDto = {
   serviceFee: string | null;
   /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
   serviceFeePercent: string | null;
+  /** Snapshot: este pedido compõe a meta da rodada? */
+  countsTowardGoal: boolean;
   total: string;
 };
 
@@ -97,6 +102,8 @@ export type UserOrderDto = {
   serviceFee: string | null;
   /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
   serviceFeePercent: string | null;
+  /** Snapshot: este pedido compõe a meta da rodada? */
+  countsTowardGoal: boolean;
   total: string;
 };
 
@@ -138,6 +145,8 @@ export type AdminEventOrderDto = {
   serviceFee: string | null;
   /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
   serviceFeePercent: string | null;
+  /** Snapshot: este pedido compõe a meta da rodada? */
+  countsTowardGoal: boolean;
   total: string;
 };
 
@@ -168,10 +177,14 @@ export type EventSummaryDto = {
     serviceFee: string | null;
     /** Percentual aplicado no pedido (ex.: "10"). Null = pedido sem taxa. */
     serviceFeePercent: string | null;
+    /** Snapshot: este pedido compõe a meta da rodada? */
+    countsTowardGoal: boolean;
     total: string;
   }[];
   /** Soma dos totais por pessoa (itens + taxas de serviço). */
   grandTotal: string;
+  /** Meta de valor (encomenda). Null quando a rodada não tem meta. */
+  goal: EventGoalDto | null;
 };
 
 // ── Racha de pizza — participação (votos + fatias + respostas) ───────────────
@@ -277,6 +290,7 @@ export function toCreatedOrderDto(order: OrderBaseRecord & { event: OrderEventRe
     items: toOrderItemsDto(order.orderItems),
     serviceFee: decimalToString(order.serviceFee),
     serviceFeePercent: decimalToString(order.serviceFeePercent),
+    countsTowardGoal: order.countsTowardGoal ?? false,
     total: getOrderTotal(order).toString(),
   };
 }
@@ -302,6 +316,7 @@ export function toUserOrderDto(
     items: toOrderItemsDto(order.orderItems),
     serviceFee: decimalToString(order.serviceFee),
     serviceFeePercent: decimalToString(order.serviceFeePercent),
+    countsTowardGoal: order.countsTowardGoal ?? false,
     total: getOrderTotal(order).toString(),
   };
 }
@@ -364,6 +379,7 @@ export function toAdminEventOrderDto(order: AdminOrderRecord): AdminEventOrderDt
     items: toOrderItemsDto(order.orderItems),
     serviceFee: decimalToString(order.serviceFee),
     serviceFeePercent: decimalToString(order.serviceFeePercent),
+    countsTowardGoal: order.countsTowardGoal ?? false,
     total: getOrderTotal(order).toString(),
   };
 }
@@ -371,6 +387,7 @@ export function toAdminEventOrderDto(order: AdminOrderRecord): AdminEventOrderDt
 export function toEventSummaryDto(
   event: SummaryEventRecord,
   orders: AdminOrderRecord[],
+  goal: EventGoalDto | null = null,
 ): EventSummaryDto {
   const validOrders = orders.filter((order) => !["CANCELLED", "EXPIRED"].includes(order.status));
   const totalsByItem = new Map<string, { itemId: string; title: string; totalQuantity: number }>();
@@ -406,6 +423,7 @@ export function toEventSummaryDto(
       })),
       serviceFee: decimalToString(order.serviceFee),
       serviceFeePercent: decimalToString(order.serviceFeePercent),
+      countsTowardGoal: order.countsTowardGoal ?? false,
       total: orderTotal.toString(),
     };
   });
@@ -421,5 +439,6 @@ export function toEventSummaryDto(
     totalsByItem: Array.from(totalsByItem.values()),
     byPerson,
     grandTotal: grandTotal.toString(),
+    goal,
   };
 }

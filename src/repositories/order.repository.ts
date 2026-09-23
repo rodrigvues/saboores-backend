@@ -217,57 +217,62 @@ class OrderRepository {
     });
   }
 
-  async create(data: {
-    userId: string;
-    eventId: string;
-    /** Snapshot da taxa de serviço da rodada em reais (null = sem taxa). */
-    serviceFee: Prisma.Decimal | null;
-    /** Snapshot do percentual aplicado (só rótulo do recibo; null = sem taxa). */
-    serviceFeePercent: Prisma.Decimal | null;
-    items: {
-      itemId: string;
-      quantity: number;
-      unitPrice: Prisma.Decimal;
-    }[];
-  }) {
-    return prisma.$transaction(async (tx) => {
-      const order = await tx.order.create({
-        data: {
-          userId: data.userId,
-          eventId: data.eventId,
-          serviceFee: data.serviceFee,
-          serviceFeePercent: data.serviceFeePercent,
-          orderItems: {
-            create: data.items.map((item) => ({
-              itemId: item.itemId,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-            })),
+  async create(
+    data: {
+      userId: string;
+      eventId: string;
+      /** Snapshot da taxa de serviço da rodada em reais (null = sem taxa). */
+      serviceFee: Prisma.Decimal | null;
+      /** Snapshot do percentual aplicado (só rótulo do recibo; null = sem taxa). */
+      serviceFeePercent: Prisma.Decimal | null;
+      /** Snapshot: este pedido compõe a meta da rodada? */
+      countsTowardGoal: boolean;
+      items: {
+        itemId: string;
+        quantity: number;
+        unitPrice: Prisma.Decimal;
+      }[];
+    },
+    // A transação passa a ser do service (decisão travada 10); sem `tx` o
+    // `create` com `orderItems.create` já é atômico por si só.
+    tx?: Prisma.TransactionClient,
+  ) {
+    const client = tx ?? prisma;
+    return client.order.create({
+      data: {
+        userId: data.userId,
+        eventId: data.eventId,
+        serviceFee: data.serviceFee,
+        serviceFeePercent: data.serviceFeePercent,
+        countsTowardGoal: data.countsTowardGoal,
+        orderItems: {
+          create: data.items.map((item) => ({
+            itemId: item.itemId,
+            quantity: item.quantity,
+            unitPrice: item.unitPrice,
+          })),
+        },
+      },
+      include: {
+        event: {
+          select: {
+            id: true,
+            name: true,
           },
         },
-        include: {
-          event: {
-            select: {
-              id: true,
-              name: true,
-            },
-          },
-          orderItems: {
-            select: {
-              quantity: true,
-              unitPrice: true,
-              item: {
-                select: {
-                  id: true,
-                  name: true,
-                },
+        orderItems: {
+          select: {
+            quantity: true,
+            unitPrice: true,
+            item: {
+              select: {
+                id: true,
+                name: true,
               },
             },
           },
         },
-      });
-
-      return order;
+      },
     });
   }
 

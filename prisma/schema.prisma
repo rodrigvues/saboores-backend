@@ -156,9 +156,25 @@ model Event {
   organizers    EventOrganizer[] // F3.1 — quem pode gerenciar este evento
   flavors       Flavor[] // sabores extras deste evento (eventId preenchido)
   generalSplit  GeneralSplit? // racha geral (GENERAL_SPLIT): config + estado
+  goal          EventGoal? // meta de valor (só encomenda; 1:1)
 
   @@index([typeId])
   @@index([createdByUserId])
+}
+
+// Meta de valor da encomenda (1:1 com a rodada). Tabela própria porque nome e
+// alvo só existem juntos, e porque a linha é travada (FOR UPDATE) na detecção
+// de "meta atingida" durante a transação do pedido.
+model EventGoal {
+  id                String    @id @default(cuid())
+  eventId           String    @unique
+  name              String
+  targetAmountCents Int
+  reachedAt         DateTime?
+  version           Int       @default(0)
+  createdAt         DateTime  @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
 // Racha geral (GENERAL_SPLIT) — uma linha por evento. Fica fora de `Event` porque
@@ -226,6 +242,10 @@ model Order {
   serviceFee        Decimal?
   serviceFeePercent Decimal?
 
+  // Encomenda — snapshot: este pedido compõe a meta da rodada? O default false é o
+  // backfill correto (nenhuma rodada tinha meta) e cobre o ramo do racha.
+  countsTowardGoal Boolean @default(false)
+
   // ── Racha geral: participação. `sharePercentBps` NULL = flutuante (divide o
   //    que sobra). `amountDueCents` NULL = ainda não há valor devido. ──
   sharePercentBps Int?
@@ -246,6 +266,8 @@ model Order {
   // Frente 5 — ranking filtra por (status, createdAt); prêmio por (paymentStatus, createdAt).
   @@index([status, createdAt])
   @@index([paymentStatus, createdAt])
+  // Meta de valor — soma os pedidos que compõem a meta de uma rodada.
+  @@index([eventId, countsTowardGoal, status])
 }
 
 model OrderItem {

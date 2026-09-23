@@ -236,6 +236,46 @@ class EmailService {
 
     await this.send({ to: params.to, subject, html, text });
   }
+
+  /** Meta de valor atingida — avisa o criador da rodada (best-effort). */
+  async sendGoalReached(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    goalName: string;
+    targetAmount: string;
+    raisedAmount: string;
+  }) {
+    const url = `${env.appUrl}/painel/rodadas`;
+    const subject = `Meta atingida: ${params.eventName}`;
+    const text = [
+      `Olá, ${params.name}! A rodada "${params.eventName}" atingiu a meta "${params.goalName}".`,
+      `Em pedidos ativos até agora: R$ ${params.raisedAmount} (meta: R$ ${params.targetAmount}).`,
+      "Já dá para comprar. A rodada continua aberta, e os pedidos que chegarem agora aparecem separados no seu painel.",
+      "",
+      `Ver a rodada: ${url}`,
+    ].join("\n");
+
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#0ca678;">Sua meta bateu 🎯</h2>
+        <p>Olá, <strong>${params.name}</strong>! A rodada <strong>${params.eventName}</strong>
+          atingiu a meta <strong>${params.goalName}</strong>.</p>
+        <p>Em pedidos ativos até agora: <strong>R$ ${params.raisedAmount}</strong>
+          (meta: R$ ${params.targetAmount}).</p>
+        <p>Já dá para comprar. A rodada continua aberta, e os pedidos que chegarem agora aparecem
+          separados no seu painel.</p>
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver a rodada
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
 }
 
 export const emailService = new EmailService();

@@ -1,11 +1,19 @@
 import type { EventKind, EventStatus, Prisma } from "@prisma/client";
 import { pickMostOrderedIds } from "../services/itemOrdering.engine.js";
+import type { EventGoalDto } from "./eventGoal.dto.js";
 
 type EventTypeRef = {
   id: string;
   name: string;
   description: string | null;
 };
+
+/** Meta como sai da projeção do repositório (o progresso é agregado à parte). */
+type EventGoalRef = {
+  name: string;
+  targetAmountCents: number;
+  reachedAt: Date | null;
+} | null;
 
 type EventListRecord = {
   id: string;
@@ -17,6 +25,7 @@ type EventListRecord = {
   slicesPerPizza: number | null;
   avgLargePizzaPrice: Prisma.Decimal | null;
   type: EventTypeRef | null;
+  goal: EventGoalRef;
 };
 
 type EventDetailsRecord = {
@@ -55,6 +64,7 @@ type EventDetailsRecord = {
     name: string;
     surname: string;
   };
+  goal: EventGoalRef;
 };
 
 /** Item já ordenado pelo service, com os flags de personalização e destaque. */
@@ -80,6 +90,8 @@ export type EventSummaryDto = {
   status: EventStatus;
   /** Pizza: "≈ R$ X/pessoa" (motor). Null no STANDARD. */
   estimatedPerPerson: string | null;
+  /** Meta de valor (encomenda). Null quando a rodada não tem meta. */
+  goal: EventGoalDto | null;
 };
 
 /** Config + custo do racha (RP3/RP9). Só presente em PIZZA_SPLIT. */
@@ -143,6 +155,8 @@ export type EventDetailsDto = {
   }[];
   /** Config do racha (PIZZA_SPLIT). Null no STANDARD. */
   pizza: EventPizzaConfig | null;
+  /** Meta de valor (encomenda). Null quando a rodada não tem meta. */
+  goal: EventGoalDto | null;
 };
 
 export function toEventSummaryDto(
@@ -160,6 +174,8 @@ export function toEventSummaryDto(
     endsAt: event.endsAt,
     status: event.status,
     estimatedPerPerson,
+    // Preenchido depois por eventGoalService (o progresso é agregado à parte).
+    goal: null,
   };
 }
 
@@ -231,5 +247,7 @@ export function toEventDetailsDto(
           choicesLockedAt: event.choicesLockedAt,
         }
       : null,
+    // Preenchido depois por eventGoalService (o progresso é agregado à parte).
+    goal: null,
   };
 }

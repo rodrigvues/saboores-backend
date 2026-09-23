@@ -21,6 +21,22 @@ const newTypeSchema = z.object({
     .min(1, "Inclua ao menos um item."),
 });
 
+/** Meta de valor da encomenda. `targetAmount` em reais; vira centavos no service. */
+export const goalSchema = z.object({
+  name: z
+    .string()
+    .trim()
+    .min(2, "Dê um nome à meta (mín. 2 caracteres).")
+    .max(60, "O nome da meta deve ter no máximo 60 caracteres."),
+  targetAmount: z.coerce
+    .number({ error: "O valor da meta deve ser maior que zero." })
+    .positive("O valor da meta deve ser maior que zero.")
+    .max(1_000_000, "O valor da meta deve ser no máximo R$ 1.000.000,00.")
+    .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, {
+      message: "Use no máximo 2 casas decimais no valor da meta.",
+    }),
+});
+
 /** Sabor extra cadastrado junto da criação do racha (RP3). */
 const extraFlavorSchema = z.object({
   name: z.string().trim().min(2, "Nome do sabor deve ter ao menos 2 caracteres.").max(60),
@@ -49,6 +65,7 @@ export const createEventSchema = z
     newType: newTypeSchema.optional(),
     hasServiceFee: z.boolean().optional(),
     serviceFeePercent: z.coerce.number().optional(),
+    goal: goalSchema.optional(),
     // PIZZA_SPLIT (defaults no service)
     maxFlavorsPerOrder: z.coerce.number().int().optional(),
     slicesPerPizza: z.coerce.number().int().optional(),
@@ -105,6 +122,15 @@ export const createEventSchema = z
           message: "Use no máximo duas casas decimais no percentual.",
         });
       }
+    }
+
+    // Meta de valor só existe na encomenda (RN-M1).
+    if (d.goal && d.kind !== "STANDARD") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["goal"],
+        message: "Meta de valor só se aplica a rodadas de encomenda.",
+      });
     }
 
     if (d.kind === "PIZZA_SPLIT") {
@@ -164,6 +190,8 @@ export const updateEventSchema = z
       .min(MIN_SERVICE_FEE_PERCENT, "Informe o percentual da taxa (entre 0,01% e 100%).")
       .max(MAX_SERVICE_FEE_PERCENT, "O percentual da taxa não pode passar de 100%.")
       .optional(),
+    // Meta de valor: objeto cria/edita, `null` remove (RN-M7/M10).
+    goal: goalSchema.nullable().optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
     message: "Nada para atualizar.",
@@ -189,4 +217,5 @@ export const registerCostSchema = z.object({
 
 export type CreateEventInput = z.infer<typeof createEventSchema>;
 export type UpdateEventInput = z.infer<typeof updateEventSchema>;
+export type GoalInput = z.infer<typeof goalSchema>;
 export type RegisterCostInput = z.infer<typeof registerCostSchema>;

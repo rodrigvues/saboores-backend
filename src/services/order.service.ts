@@ -12,6 +12,10 @@ import {
 import { orderRepository } from "../repositories/order.repository.js";
 import { userRepository } from "../repositories/user.repository.js";
 import { eventRepository } from "../repositories/event.repository.js";
+import { eventGoalRepository } from "../repositories/eventGoal.repository.js";
+import { eventGoalService } from "./eventGoal.service.js";
+import { isGoalReached, resolveCountsTowardGoal } from "./eventGoal.engine.js";
+import { prisma } from "../lib/prisma.js";
 import { flavorRepository } from "../repositories/flavor.repository.js";
 import { preferenceQuestionRepository } from "../repositories/preferenceQuestion.repository.js";
 import { rankingService } from "./ranking.service.js";
@@ -112,13 +116,50 @@ class OrderService {
         : null;
     const feeCents = percent === null ? null : serviceFeeCents(subtotalCents, percent);
 
-    const order = await orderRepository.create({
-      userId,
-      eventId: event.id,
-      serviceFee: feeCents === null ? null : new Prisma.Decimal(feeCents).div(100),
-      serviceFeePercent: percent === null ? null : new Prisma.Decimal(percent),
-      items: orderItems,
-    });
+    const { order, goalJustReached } = await prisma.$transaction(
+      async (tx) => {
+        // Trava a rodada e a meta ANTES do insert: serializa pedidos simultâneos
+        // e a criação/remoção da meta, e faz a soma enxergar os commitados + o nosso.
+        await eventGoalRepository.lockEvent(event.id, tx);
+        const goal = await eventGoalRepository.lockForUpdate(event.id, tx);
+        const countsTowardGoal = resolveCountsTowardGoal({
+          hasGoal: goal !== null,
+          alreadyReached: goal?.reachedAt != null,
+          optOut: input.optOutOfGoal === true,
+        });
+
+        const created = await orderRepository.create(
+          {
+            userId,
+            eventId: event.id,
+            serviceFee: feeCents === null ? null : new Prisma.Decimal(feeCents).div(100),
+            serviceFeePercent: percent === null ? null : new Prisma.Decimal(percent),
+            countsTowardGoal,
+            items: orderItems,
+          },
+          tx,
+        );
+        if (!goal || goal.reachedAt || !countsTowardGoal) {
+          return { order: created, goalJustReached: false };
+        }
+
+        const [progress] = await eventGoalRepository.sumProgressByEvents([event.id], tx);
+        const justReached =
+          isGoalReached(progress?.raisedCents ?? 0, goal.targetAmountCents) &&
+          (await eventGoalRepository.markReached(event.id, tx));
+
+        return { order: created, goalJustReached: justReached };
+      },
+      { timeout: 15_000 },
+    );
+
+    if (goalJustReached) {
+      void eventGoalService.notifyGoalReached({
+        eventId: event.id,
+        actorId: userId,
+        source: "order",
+      });
+    }
 
     // O histórico do usuário mudou: a próxima leitura do catálogo já reordena.
     itemHistoryService.invalidateUser(userId);
@@ -487,8 +528,12 @@ class OrderService {
     }
 
     const orders = await orderRepository.findManyByEventId(eventId);
+    const goal = await eventGoalService.buildForEvent(
+      await eventGoalRepository.findByEventId(eventId),
+      eventId,
+    );
 
-    return toEventSummaryDto(event, orders);
+    return toEventSummaryDto(event, orders, goal);
   }
 
   private normalizeItems(items: NonNullable<CreateOrderInput["items"]>) {

@@ -22,6 +22,8 @@ export const createOrderSchema = z.object({
       }),
     )
     .optional(),
+  /** Encomenda — o participante pede para ficar fora da meta; o racha ignora. */
+  optOutOfGoal: z.boolean().optional(),
   // PIZZA_SPLIT
   flavorIds: z.array(z.string().trim().min(1)).optional(),
   slicesWanted: z.coerce.number().int().positive().optional(),

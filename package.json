@@ -13,7 +13,8 @@
     "test:ordering": "tsx src/services/itemOrdering.engine.spec.ts",
     "test:ranking": "tsx src/services/ranking.engine.spec.ts",
     "test:period": "tsx src/utils/period.spec.ts",
-    "test:units": "npm run test:engine && npm run test:ordering && npm run test:engine:general && npm run test:ranking && npm run test:period"
+    "test:goal": "tsx src/services/eventGoal.engine.spec.ts",
+    "test:units": "npm run test:engine && npm run test:ordering && npm run test:engine:general && npm run test:ranking && npm run test:period && npm run test:goal"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

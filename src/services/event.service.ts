@@ -11,19 +11,22 @@ import { auditService, AuditAction } from "./audit.service.js";
 import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { itemHistoryService } from "./itemHistory.service.js";
 import { sortItemsByUserHistory } from "./itemOrdering.engine.js";
+import { eventGoalService } from "./eventGoal.service.js";
 import { HttpError } from "../utils/http-error.js";
 import type { CreateEventInput, UpdateEventInput } from "../schemas/event.schema.js";
 
 class EventService {
   async getEvents() {
     const events = await eventRepository.findMany();
-    return pizzaSplitService.attachEstimates(events);
+    const summaries = await pizzaSplitService.attachEstimates(events);
+    return eventGoalService.attachGoals(events, summaries);
   }
 
   /** Rodadas que o usuário gerencia (ADMIN: todas; ORGANIZER: vinculadas). */
   async getManaged(params: { userId: string; isAdmin: boolean }) {
     const events = await eventRepository.findManagedBy(params);
-    return pizzaSplitService.attachEstimates(events);
+    const summaries = await pizzaSplitService.attachEstimates(events);
+    return eventGoalService.attachGoals(events, summaries);
   }
 
   async getEventById(params: { id: string; userId: string }) {
@@ -34,26 +37,29 @@ class EventService {
 
     const type = event.type;
     // Só a encomenda tem catálogo de Item; racha não paga por essa consulta.
+    let dto;
     if (event.kind !== "STANDARD" || !type || type.items.length === 0) {
-      return toEventDetailsDto(event);
+      dto = toEventDetailsDto(event);
+    } else {
+      let quantities = new Map<string, number>();
+      try {
+        quantities = await itemHistoryService.getUserQuantities({
+          userId: params.userId,
+          typeId: type.id,
+          itemIds: type.items.map((item) => item.id),
+        });
+      } catch {
+        // Ordem de vitrine não derruba a tela: cai para a ordem global (RN-9).
+      }
+
+      const ordered = sortItemsByUserHistory(type.items, quantities).map(
+        ({ item, orderedByMe, isMostOrdered }) => ({ ...item, orderedByMe, isMostOrdered }),
+      );
+      dto = toEventDetailsDto(event, ordered);
     }
 
-    let quantities = new Map<string, number>();
-    try {
-      quantities = await itemHistoryService.getUserQuantities({
-        userId: params.userId,
-        typeId: type.id,
-        itemIds: type.items.map((item) => item.id),
-      });
-    } catch {
-      // Ordem de vitrine não derruba a tela: cai para a ordem global (RN-9).
-    }
-
-    const ordered = sortItemsByUserHistory(type.items, quantities).map(
-      ({ item, orderedByMe, isMostOrdered }) => ({ ...item, orderedByMe, isMostOrdered }),
-    );
-
-    return toEventDetailsDto(event, ordered);
+    dto.goal = await eventGoalService.buildForEvent(event.goal, event.id);
+    return dto;
   }
 
   /**
@@ -117,6 +123,16 @@ class EventService {
         tx,
       });
 
+      // Meta opcional criada na mesma transação; a auditoria sai depois do commit.
+      if (input.goal) {
+        await eventGoalService.applyOnCreate({
+          eventId: event.id,
+          actorId,
+          input: input.goal,
+          tx,
+        });
+      }
+
       return { event, createdTypeId };
     });
 
@@ -132,8 +148,17 @@ class EventService {
       action: AuditAction.EVENT_CREATE,
       targetId: result.event.id,
     });
+    if (input.goal) {
+      void auditService.log({
+        actorId,
+        action: AuditAction.EVENT_GOAL_SET,
+        targetId: result.event.id,
+        metadata: { eventId: result.event.id, goalName: input.goal.name },
+      });
+    }
 
-    return toEventDetailsDto(result.event);
+    // A meta recém-criada não está na projeção do create: releia pelo getEventById.
+    return (await this.getEventById({ id: result.event.id, userId: actorId }))!;
   }
 
   private async createPizza(actorId: string, input: CreateEventInput) {
@@ -241,7 +266,19 @@ class EventService {
       throw new HttpError(400, "Taxa de serviço só se aplica a rodadas de encomenda.");
     }
 
-    const updated = await eventRepository.update(params.eventId, {
+    // Meta de valor (só encomenda): cria/edita/remove antes do update da rodada.
+    let goalJustReached = false;
+    if (params.input.goal !== undefined) {
+      goalJustReached = await eventGoalService.applyOnUpdate({
+        eventId: params.eventId,
+        actorId: params.actorId,
+        input: params.input.goal ?? null,
+        eventStatus: current.status,
+        eventKind: current.kind,
+      });
+    }
+
+    await eventRepository.update(params.eventId, {
       name: params.input.name,
       startsAt: params.input.startsAt,
       endsAt: params.input.endsAt,
@@ -264,7 +301,16 @@ class EventService {
       metadata: { changed: Object.keys(params.input) },
     });
 
-    return toEventDetailsDto(updated);
+    if (goalJustReached) {
+      void eventGoalService.notifyGoalReached({
+        eventId: params.eventId,
+        actorId: params.actorId,
+        source: "patch",
+      });
+    }
+
+    // A meta não está na projeção do update: releia pelo getEventById.
+    return (await this.getEventById({ id: params.eventId, userId: params.actorId }))!;
   }
 
   /** F4.2 — lista mínima de participantes de um evento (apelido + avatar). */
