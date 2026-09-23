@@ -1,5 +1,12 @@
-import { Prisma, type EventStatus, type OrderStatus, type PaymentStatus } from "@prisma/client";
+import {
+  Prisma,
+  type EventKind,
+  type EventStatus,
+  type OrderStatus,
+  type PaymentStatus,
+} from "@prisma/client";
 import { PIZZA_EDIT_WINDOW_MS } from "../constants/order.js";
+import { centsToReais } from "../utils/money.js";
 import type { EventGoalDto } from "./eventGoal.dto.js";
 
 type OrderItemRecord = {
@@ -14,6 +21,7 @@ type OrderItemRecord = {
 type OrderEventRecord = {
   id: string;
   name: string;
+  kind?: EventKind;
   status?: EventStatus;
   startsAt?: Date;
   endsAt?: Date;
@@ -33,6 +41,8 @@ type OrderBaseRecord = {
   serviceFeePercent?: Prisma.Decimal | null;
   /** Snapshot: este pedido compõe a meta da rodada? */
   countsTowardGoal?: boolean;
+  /** Racha geral: valor devido em centavos. Null fora dele. */
+  amountDueCents?: number | null;
   event?: OrderEventRecord;
   orderItems: OrderItemRecord[];
 };
@@ -84,12 +94,16 @@ export type CreatedOrderDto = {
 
 export type UserOrderDto = {
   id: string;
+  /** Discriminante: a tela escolhe entre `total` (encomenda) e `amountDue` (racha). */
+  kind: EventKind;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   createdAt: Date;
   confirmedAt: Date | null;
   cancelledAt: Date | null;
   deliveredAt: Date | null;
+  /** Reais. Valor devido da participação de racha geral. Null fora dele. */
+  amountDue: string | null;
   event: {
     id: string;
     title: string;
@@ -137,6 +151,8 @@ export type AdminEventOrderDto = {
     fullName: string;
     email: string;
   };
+  /** Reais. Valor devido da participação de racha geral. Null fora dele. */
+  amountDue: string | null;
   status: OrderStatus;
   paymentStatus: PaymentStatus;
   createdAt: Date;
@@ -300,12 +316,14 @@ export function toUserOrderDto(
 ): UserOrderDto {
   return {
     id: order.id,
+    kind: order.event.kind,
     status: order.status,
     paymentStatus: order.paymentStatus,
     createdAt: order.createdAt,
     confirmedAt: order.confirmedAt ?? null,
     cancelledAt: order.cancelledAt ?? null,
     deliveredAt: order.deliveredAt ?? null,
+    amountDue: order.amountDueCents != null ? centsToReais(order.amountDueCents) : null,
     event: {
       id: order.event.id,
       title: order.event.name,
@@ -373,6 +391,7 @@ export function toAdminEventOrderDto(order: AdminOrderRecord): AdminEventOrderDt
       fullName: `${order.user.name} ${order.user.surname}`,
       email: order.user.email,
     },
+    amountDue: order.amountDueCents != null ? centsToReais(order.amountDueCents) : null,
     status: order.status,
     paymentStatus: order.paymentStatus,
     createdAt: order.createdAt,

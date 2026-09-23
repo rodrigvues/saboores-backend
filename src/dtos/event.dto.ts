@@ -1,6 +1,10 @@
 import type { EventKind, EventStatus, Prisma } from "@prisma/client";
 import { pickMostOrderedIds } from "../services/itemOrdering.engine.js";
 import type { EventGoalDto } from "./eventGoal.dto.js";
+import type {
+  GeneralSplitBlockDto,
+  GeneralSplitParticipationDto,
+} from "./generalSplit.dto.js";
 
 type EventTypeRef = {
   id: string;
@@ -92,6 +96,10 @@ export type EventSummaryDto = {
   estimatedPerPerson: string | null;
   /** Meta de valor (encomenda). Null quando a rodada não tem meta. */
   goal: EventGoalDto | null;
+  /** Racha geral: dados do card. Null nos outros modos. */
+  generalSplit: GeneralSplitBlockDto | null;
+  /** Racha geral: o usuário do token já está dentro. Null quando não se aplica. */
+  viewerIsParticipant: boolean | null;
 };
 
 /** Config + custo do racha (RP3/RP9). Só presente em PIZZA_SPLIT. */
@@ -157,6 +165,10 @@ export type EventDetailsDto = {
   pizza: EventPizzaConfig | null;
   /** Meta de valor (encomenda). Null quando a rodada não tem meta. */
   goal: EventGoalDto | null;
+  /** Racha geral: config + estado. Null nos outros modos. */
+  generalSplit: GeneralSplitBlockDto | null;
+  /** Racha geral: participação do usuário do token. Null quando não se aplica. */
+  myParticipation: GeneralSplitParticipationDto | null;
 };
 
 export function toEventSummaryDto(
@@ -176,6 +188,9 @@ export function toEventSummaryDto(
     estimatedPerPerson,
     // Preenchido depois por eventGoalService (o progresso é agregado à parte).
     goal: null,
+    // Preenchido depois por generalSplitService.attachToSummaries.
+    generalSplit: null,
+    viewerIsParticipant: null,
   };
 }
 
@@ -183,7 +198,6 @@ export function toEventDetailsDto(
   event: EventDetailsRecord,
   orderedItems?: OrderedEventItem[],
 ): EventDetailsDto {
-  const isPizza = event.kind === "PIZZA_SPLIT";
   const fallbackItems = event.type?.items ?? [];
   // `isMostOrdered` não depende de quem pergunta, então vale também no fallback.
   const fallbackMostOrdered = pickMostOrderedIds(fallbackItems);
@@ -234,20 +248,24 @@ export function toEventDetailsDto(
       orderCount: item.orderCount,
       isMostOrdered: item.isMostOrdered,
     })),
-    pizza: isPizza
-      ? {
-          maxFlavorsPerOrder: event.maxFlavorsPerOrder,
-          slicesPerPizza: event.slicesPerPizza,
-          avgLargePizzaPrice: event.avgLargePizzaPrice?.toString() ?? null,
-          pixKey: event.pixKey,
-          pixQrUrl: event.pixQrUrl,
-          actualTotalCost: event.actualTotalCost?.toString() ?? null,
-          costEvidenceUrl: event.costEvidenceUrl,
-          costRegisteredAt: event.costRegisteredAt,
-          choicesLockedAt: event.choicesLockedAt,
-        }
-      : null,
+    pizza:
+      event.kind === "PIZZA_SPLIT"
+        ? {
+            maxFlavorsPerOrder: event.maxFlavorsPerOrder,
+            slicesPerPizza: event.slicesPerPizza,
+            avgLargePizzaPrice: event.avgLargePizzaPrice?.toString() ?? null,
+            pixKey: event.pixKey,
+            pixQrUrl: event.pixQrUrl,
+            actualTotalCost: event.actualTotalCost?.toString() ?? null,
+            costEvidenceUrl: event.costEvidenceUrl,
+            costRegisteredAt: event.costRegisteredAt,
+            choicesLockedAt: event.choicesLockedAt,
+          }
+        : null,
     // Preenchido depois por eventGoalService (o progresso é agregado à parte).
     goal: null,
+    // Preenchidos depois por generalSplitService/eventService no GET /events/:id.
+    generalSplit: null,
+    myParticipation: null,
   };
 }

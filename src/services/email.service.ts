@@ -111,6 +111,7 @@ class EmailService {
     serviceFee?: string | null;
     serviceFeePercent?: string | null;
     total: string;
+    purchaseName?: string | null;
   }) {
     const url = `${env.appUrl}/pedidos`;
     const subject = `Pagamento confirmado — ${params.eventName}`;
@@ -119,9 +120,12 @@ class EmailService {
     const feeLabel = params.serviceFeePercent
       ? `Taxa de serviço (${params.serviceFeePercent.replace(".", ",")}%)`
       : "Taxa de serviço";
-    const itemsText = params.items
-      .map((item) => `  - ${item.quantity}× ${item.title}`)
-      .join("\n");
+    // Racha geral — o pedido não tem itens: mostramos o nome da compra no lugar
+    // da lista, para o e-mail não sair com um bloco vazio (INV-A18).
+    const hasItems = params.items.length > 0;
+    const detailText = hasItems
+      ? params.items.map((item) => `  - ${item.quantity}× ${item.title}`).join("\n")
+      : `  Compra: ${params.purchaseName ?? "Racha"}`;
     const feeText =
       params.serviceFee != null ? [`${feeLabel}: R$ ${brl(params.serviceFee)}`] : [];
     const text = [
@@ -129,7 +133,7 @@ class EmailService {
       "",
       `Confirmamos o pagamento do seu pedido na rodada "${params.eventName}".`,
       "",
-      itemsText,
+      detailText,
       "",
       ...feeText,
       `Total: R$ ${brl(params.total)}`,
@@ -137,15 +141,17 @@ class EmailService {
       `Acompanhe em: ${url}`,
     ].join("\n");
 
-    const itemsHtml = params.items
-      .map((item) => `<li>${item.quantity}× ${item.title}</li>`)
-      .join("");
+    const detailHtml = hasItems
+      ? `<ul style="color:#52606d;">${params.items
+          .map((item) => `<li>${item.quantity}× ${item.title}</li>`)
+          .join("")}</ul>`
+      : `<p style="color:#52606d;">Compra: <strong>${params.purchaseName ?? "Racha"}</strong></p>`;
     const html = `
       <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
         <h2 style="color:#0ca678;">Pagamento confirmado ✅</h2>
         <p>Olá, <strong>${params.name}</strong>! Confirmamos o pagamento do seu pedido na rodada
           <strong>${params.eventName}</strong>.</p>
-        <ul style="color:#52606d;">${itemsHtml}</ul>
+        ${detailHtml}
         ${params.serviceFee != null ? `<p style="color:#e8590c;">${feeLabel}: R$ ${brl(params.serviceFee)}</p>` : ""}
         <p style="font-weight:600;">Total: R$ ${brl(params.total)}</p>
         <p>
@@ -269,6 +275,168 @@ class EmailService {
           <a href="${url}"
              style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
             Ver a rodada
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
+  /**
+   * Racha geral (TARGET) — entrada aceita que ainda não completou o racha. O valor
+   * por pessoa já é final e o PIX já vale, mas ainda faltam pessoas.
+   */
+  async sendGeneralSplitJoined(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    eventId: string;
+    purchaseName: string;
+    amount: string;
+    pixKey: string | null;
+    missing: number;
+  }) {
+    const url = `${env.appUrl}/rodadas/${params.eventId}`;
+    const valor = params.amount.replace(".", ",");
+    const subject = `Você entrou no racha: ${params.eventName}`;
+    const faltam =
+      params.missing === 1
+        ? "Falta 1 pessoa para completar."
+        : `Faltam ${params.missing} pessoas para completar.`;
+    const pixText = params.pixKey
+      ? `\nPague no PIX do organizador: ${params.pixKey}`
+      : "";
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `Você entrou no racha "${params.eventName}" (${params.purchaseName}).`,
+      `Seu valor é R$ ${valor}.`,
+      faltam,
+      pixText,
+      "",
+      `Acompanhe: ${url}`,
+    ].join("\n");
+
+    const pixHtml = params.pixKey
+      ? `<p style="font-size:14px;color:#1f2933;">Chave PIX do organizador:<br/>
+          <code style="font-size:15px;">${params.pixKey}</code></p>`
+      : "";
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#e8590c;">Você entrou no racha 🤝</h2>
+        <p>Olá, <strong>${params.name}</strong>! Você entrou no racha
+          <strong>${params.eventName}</strong> (${params.purchaseName}).</p>
+        <p style="font-size:18px;font-weight:700;">Seu valor: R$ ${valor}</p>
+        <p style="color:#52606d;">${faltam}</p>
+        ${pixHtml}
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver a rodada
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
+  /**
+   * Racha geral (TARGET) — a entrada que completou o racha. Vai para todos os
+   * participantes: o valor de cada um está fechado e o PIX já pode ser pago.
+   */
+  async sendGeneralSplitCompleted(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    eventId: string;
+    purchaseName: string;
+    amount: string;
+    pixKey: string | null;
+  }) {
+    const url = `${env.appUrl}/rodadas/${params.eventId}`;
+    const valor = params.amount.replace(".", ",");
+    const subject = `O racha completou: ${params.eventName}`;
+    const pixText = params.pixKey
+      ? `\nPague no PIX do organizador: ${params.pixKey}`
+      : "";
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `O racha "${params.eventName}" (${params.purchaseName}) completou.`,
+      `Seu valor é R$ ${valor}.`,
+      pixText,
+      "",
+      `Detalhes e pagamento: ${url}`,
+    ].join("\n");
+
+    const pixHtml = params.pixKey
+      ? `<p style="font-size:14px;color:#1f2933;">Chave PIX do organizador:<br/>
+          <code style="font-size:15px;">${params.pixKey}</code></p>`
+      : "";
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#e8590c;">O racha completou 🎉</h2>
+        <p>Olá, <strong>${params.name}</strong>! O racha
+          <strong>${params.eventName}</strong> (${params.purchaseName}) completou.</p>
+        <p style="font-size:18px;font-weight:700;">Seu valor: R$ ${valor}</p>
+        ${pixHtml}
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver e pagar
+          </a>
+        </p>
+      </div>
+    `;
+
+    await this.send({ to: params.to, subject, html, text });
+  }
+
+  /**
+   * Racha geral (DYNAMIC) — fechamento. É o primeiro momento em que existe um valor
+   * para cobrar, então avisa cada participante do valor final + o PIX do organizador.
+   */
+  async sendGeneralSplitSettled(params: {
+    to: string;
+    name: string;
+    eventName: string;
+    purchaseName: string;
+    amount: string;
+    pixKey: string | null;
+  }) {
+    const url = `${env.appUrl}/pedidos`;
+    const valor = params.amount.replace(".", ",");
+    const subject = `O racha fechou: ${params.eventName}`;
+    const pixText = params.pixKey
+      ? `\nPague no PIX do organizador: ${params.pixKey}`
+      : "";
+    const text = [
+      `Olá, ${params.name}!`,
+      "",
+      `O racha "${params.eventName}" (${params.purchaseName}) fechou.`,
+      `Seu valor é R$ ${valor}.`,
+      pixText,
+      "",
+      `Detalhes e pagamento: ${url}`,
+    ].join("\n");
+
+    const pixHtml = params.pixKey
+      ? `<p style="font-size:14px;color:#1f2933;">Chave PIX do organizador:<br/>
+          <code style="font-size:15px;">${params.pixKey}</code></p>`
+      : "";
+    const html = `
+      <div style="font-family: system-ui, sans-serif; max-width: 480px; margin: 0 auto; color: #1f2933;">
+        <h2 style="color:#e8590c;">O racha fechou 💸</h2>
+        <p>Olá, <strong>${params.name}</strong>! O racha
+          <strong>${params.eventName}</strong> (${params.purchaseName}) fechou.</p>
+        <p style="font-size:18px;font-weight:700;">Seu valor: R$ ${valor}</p>
+        ${pixHtml}
+        <p>
+          <a href="${url}"
+             style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
+            Ver e pagar
           </a>
         </p>
       </div>

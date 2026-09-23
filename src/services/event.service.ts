@@ -12,21 +12,24 @@ import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { itemHistoryService } from "./itemHistory.service.js";
 import { sortItemsByUserHistory } from "./itemOrdering.engine.js";
 import { eventGoalService } from "./eventGoal.service.js";
+import { generalSplitService } from "./generalSplit.service.js";
 import { HttpError } from "../utils/http-error.js";
 import type { CreateEventInput, UpdateEventInput } from "../schemas/event.schema.js";
 
 class EventService {
-  async getEvents() {
+  async getEvents(viewerId: string) {
     const events = await eventRepository.findMany();
     const summaries = await pizzaSplitService.attachEstimates(events);
-    return eventGoalService.attachGoals(events, summaries);
+    const withGoals = await eventGoalService.attachGoals(events, summaries);
+    return generalSplitService.attachToSummaries(withGoals, viewerId);
   }
 
   /** Rodadas que o usuário gerencia (ADMIN: todas; ORGANIZER: vinculadas). */
   async getManaged(params: { userId: string; isAdmin: boolean }) {
     const events = await eventRepository.findManagedBy(params);
     const summaries = await pizzaSplitService.attachEstimates(events);
-    return eventGoalService.attachGoals(events, summaries);
+    const withGoals = await eventGoalService.attachGoals(events, summaries);
+    return generalSplitService.attachToSummaries(withGoals, params.userId);
   }
 
   async getEventById(params: { id: string; userId: string }) {
@@ -59,6 +62,10 @@ class EventService {
     }
 
     dto.goal = await eventGoalService.buildForEvent(event.goal, event.id);
+    if (event.kind === "GENERAL_SPLIT") {
+      dto.generalSplit = await generalSplitService.getBlockForEvent(event.id);
+      dto.myParticipation = await generalSplitService.getMyParticipation(event.id, params.userId);
+    }
     return dto;
   }
 
@@ -69,10 +76,59 @@ class EventService {
    * Em ambos, o criador vira ORGANIZER (promovido se for USER).
    */
   async create(params: { actorId: string; input: CreateEventInput }) {
-    if (params.input.kind === "PIZZA_SPLIT") {
-      return this.createPizza(params.actorId, params.input);
+    switch (params.input.kind) {
+      case "PIZZA_SPLIT":
+        return this.createPizza(params.actorId, params.input);
+      case "GENERAL_SPLIT":
+        return this.createGeneralSplit(params.actorId, params.input);
+      case "STANDARD":
+        return this.createStandard(params.actorId, params.input);
+      default:
+        throw new HttpError(400, "Tipo de rodada inválido.");
     }
-    return this.createStandard(params.actorId, params.input);
+  }
+
+  private async createGeneralSplit(actorId: string, input: CreateEventInput) {
+    const config = input.generalSplit!; // o zod já garantiu (schema)
+
+    const result = await prisma.$transaction(async (tx) => {
+      const event = await eventRepository.create({
+        name: input.name,
+        typeId: null,
+        kind: "GENERAL_SPLIT",
+        startsAt: input.startsAt,
+        endsAt: input.endsAt,
+        status: input.status,
+        createdByUserId: actorId,
+        pixKey: input.pixKey ?? null,
+        pixQrUrl: input.pixQrUrl ?? null,
+        tx,
+      });
+
+      // O racha e a participação do criador são do service do racha (decisão travada 15).
+      await generalSplitService.createForEvent({
+        tx,
+        eventId: event.id,
+        creatorUserId: actorId,
+        input: config,
+      });
+
+      await eventOrganizerService.linkOrganizer({
+        eventId: event.id,
+        userId: actorId,
+        grantedBy: actorId,
+        tx,
+      });
+
+      return { event };
+    });
+
+    await auditService.log({
+      actorId,
+      action: AuditAction.EVENT_CREATE,
+      targetId: result.event.id,
+    });
+    return toEventDetailsDto(result.event);
   }
 
   private async createStandard(actorId: string, input: CreateEventInput) {
@@ -264,6 +320,26 @@ class EventService {
       params.input.serviceFeePercent !== undefined;
     if (feeProvided && current.kind !== "STANDARD") {
       throw new HttpError(400, "Taxa de serviço só se aplica a rodadas de encomenda.");
+    }
+
+    // Racha geral fechado: PIX e datas não mudam mais (o dinheiro já foi comunicado). INV-A9
+    if (
+      current.kind === "GENERAL_SPLIT" &&
+      (await generalSplitService.isSettled(params.eventId))
+    ) {
+      throw new HttpError(409, "Este racha já foi fechado; não dá mais para alterar.", "SPLIT_CLOSED");
+    }
+    // Encerrar a rodada e fechar o racha são o mesmo ato: não há dois caminhos (RN-29).
+    if (
+      current.kind === "GENERAL_SPLIT" &&
+      params.input.status !== undefined &&
+      params.input.status !== current.status
+    ) {
+      throw new HttpError(
+        422,
+        "Neste racha, encerrar a rodada e fechar o racha são a mesma coisa. Use o fechamento do racha.",
+        "SPLIT_USE_CLOSE_ENDPOINT",
+      );
     }
 
     // Meta de valor (só encomenda): cria/edita/remove antes do update da rodada.

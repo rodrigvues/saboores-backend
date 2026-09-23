@@ -15,6 +15,8 @@ import { eventRepository } from "../repositories/event.repository.js";
 import { eventGoalRepository } from "../repositories/eventGoal.repository.js";
 import { eventGoalService } from "./eventGoal.service.js";
 import { isGoalReached, resolveCountsTowardGoal } from "./eventGoal.engine.js";
+import { generalSplitService } from "./generalSplit.service.js";
+import { centsToReais } from "../utils/money.js";
 import { prisma } from "../lib/prisma.js";
 import { flavorRepository } from "../repositories/flavor.repository.js";
 import { preferenceQuestionRepository } from "../repositories/preferenceQuestion.repository.js";
@@ -47,15 +49,30 @@ class OrderService {
       throw new HttpError(404, "Evento não encontrado.");
     }
 
+    // Rota errada é recusada por rota errada: a mensagem certa importa mais que o
+    // status (INV-A3), então o racha geral sobe acima da guarda de status.
+    if (event.kind === "GENERAL_SPLIT") {
+      throw new HttpError(
+        422,
+        "Para entrar neste racha, abra a rodada e confirme sua entrada por lá.",
+        "SPLIT_USE_JOIN_ENDPOINT",
+      );
+    }
+
     if (event.status !== "OPEN") {
       throw new HttpError(409, "Esta rodada não está aberta para pedidos.");
     }
 
-    if (event.kind === "PIZZA_SPLIT") {
-      return this.createPizzaParticipation(params.userId, event, params.input);
+    // `GENERAL_SPLIT` já saiu pela guarda acima (INV-A3); o `default` é a rede
+    // para um quarto `kind` que um dia entre sem cair calado na encomenda.
+    switch (event.kind) {
+      case "PIZZA_SPLIT":
+        return this.createPizzaParticipation(params.userId, event, params.input);
+      case "STANDARD":
+        return this.createStandardOrder(params.userId, event, params.input);
+      default:
+        throw new HttpError(400, "Tipo de rodada inválido.");
     }
-
-    return this.createStandardOrder(params.userId, event, params.input);
   }
 
   private async createStandardOrder(
@@ -217,6 +234,13 @@ class OrderService {
     if (!order) {
       throw new HttpError(404, "Pedido não encontrado.");
     }
+    if (order.event.kind === "GENERAL_SPLIT") {
+      throw new HttpError(
+        422,
+        "Neste racha, o que dá para mudar é a sua parte, na tela da rodada.",
+        "SPLIT_USE_MY_SHARE_ENDPOINT",
+      );
+    }
     if (order.event.kind !== "PIZZA_SPLIT") {
       throw new HttpError(400, "Esta rodada não permite editar a participação.");
     }
@@ -306,11 +330,14 @@ class OrderService {
 
   /** Racha — participação do usuário no evento (ou null). Inclui estimativa "≈". */
   async getMyParticipation(eventId: string, userId: string) {
+    const config = await eventRepository.findPizzaCore(eventId);
+    if (config?.kind === "GENERAL_SPLIT") {
+      return generalSplitService.getMyParticipation(eventId, userId);
+    }
     const order = await orderRepository.findUserParticipationDetail(eventId, userId);
     if (!order) {
       return null;
     }
-    const config = await eventRepository.findPizzaCore(eventId);
     const estimate = config
       ? await pizzaSplitService.estimatePerPersonForEvent({
           id: eventId,
@@ -348,6 +375,14 @@ class OrderService {
       );
     }
 
+    if (order.event.kind === "GENERAL_SPLIT") {
+      throw new HttpError(
+        403,
+        "Neste racha, só o organizador pode tirar alguém. O valor dos outros depende de você.",
+        "SPLIT_SELF_CANCEL_FORBIDDEN",
+      );
+    }
+
     if (order.userId !== userId) {
       throw new HttpError(403, "Você não tem permissão de cancelar esse pedido.");
     }
@@ -379,6 +414,26 @@ class OrderService {
     }
     if (["CANCELLED", "EXPIRED"].includes(order.status)) {
       throw new HttpError(409, "Pedido já está cancelado.");
+    }
+
+    // Racha geral — o cancelamento roda inteiro sob o lock do racha (RN-22):
+    // recalcula as fatias dos demais e reprojeta o total antes de qualquer
+    // escrita solta, então DELEGA por completo em vez de cancelar por fora.
+    if (order.event.kind === "GENERAL_SPLIT") {
+      const cancelled = await generalSplitService.cancelParticipation({
+        eventId: order.event.id,
+        orderId: id,
+        actorId,
+      });
+      rankingService.invalidate();
+      itemHistoryService.invalidateUser(order.userId);
+      await auditService.log({
+        actorId,
+        action: AuditAction.ORDER_CANCELLED,
+        targetId: id,
+        metadata: { eventId: order.event.id },
+      });
+      return cancelled;
     }
 
     const cancelled = await orderRepository.cancel(id);
@@ -484,6 +539,21 @@ class OrderService {
       if (!details) return;
 
       if (kind === "payment") {
+        // Racha geral — o pedido não tem itens: o total é o valor devido
+        // congelado e o e-mail mostra o nome da compra no lugar da lista.
+        if (details.event.kind === "GENERAL_SPLIT") {
+          await emailService.sendPaymentConfirmed({
+            to: details.user.email,
+            name: details.user.name,
+            eventName: details.event.name,
+            items: [],
+            serviceFee: null,
+            serviceFeePercent: null,
+            total: centsToReais(details.amountDueCents ?? 0),
+            purchaseName: details.event.generalSplit?.purchaseName ?? null,
+          });
+          return;
+        }
         // Total transparente: itens + taxa de serviço (quando o pedido tem).
         const total = details.orderItems
           .reduce(
@@ -525,6 +595,11 @@ class OrderService {
     // Racha — dashboard de recomendação (RP6) em vez dos totais do pastel.
     if (event.kind === "PIZZA_SPLIT") {
       return pizzaSplitService.getDashboard(eventId);
+    }
+
+    // Racha geral — painel de fatias e valores devidos por pessoa.
+    if (event.kind === "GENERAL_SPLIT") {
+      return generalSplitService.getDashboard(eventId);
     }
 
     const orders = await orderRepository.findManyByEventId(eventId);

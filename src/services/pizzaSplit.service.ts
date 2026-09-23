@@ -144,6 +144,9 @@ class PizzaSplitService {
     if (!event) {
       throw new HttpError(404, "Evento não encontrado.");
     }
+    if (event.kind === "GENERAL_SPLIT") {
+      throw new HttpError(422, "No racha geral não existe fechar escolhas.", "SPLIT_NOT_APPLICABLE");
+    }
     if (event.kind !== "PIZZA_SPLIT") {
       throw new HttpError(400, "Fechar escolhas só vale para o racha de pizza.");
     }
@@ -175,6 +178,13 @@ class PizzaSplitService {
     const event = await eventRepository.findPizzaCore(params.eventId);
     if (!event) {
       throw new HttpError(404, "Evento não encontrado.");
+    }
+    if (event.kind === "GENERAL_SPLIT") {
+      throw new HttpError(
+        422,
+        "No racha geral o valor já é conhecido. Use o fechamento do racha.",
+        "SPLIT_NOT_APPLICABLE",
+      );
     }
     if (event.kind !== "PIZZA_SPLIT") {
       throw new HttpError(400, "Registrar custo só vale para o racha de pizza.");

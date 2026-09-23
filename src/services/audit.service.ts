@@ -22,6 +22,9 @@ export const AuditAction = {
   EVENT_GOAL_SET: "EVENT_GOAL_SET",
   EVENT_GOAL_REMOVED: "EVENT_GOAL_REMOVED",
   EVENT_GOAL_REACHED: "EVENT_GOAL_REACHED",
+  SPLIT_JOIN: "SPLIT_JOIN",
+  SPLIT_SHARE_UPDATE: "SPLIT_SHARE_UPDATE",
+  SPLIT_CLOSE: "SPLIT_CLOSE",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

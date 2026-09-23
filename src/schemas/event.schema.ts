@@ -4,6 +4,7 @@ import {
   MIN_SERVICE_FEE_PERCENT,
   hasMoreThanTwoDecimals,
 } from "../services/serviceFee.engine.js";
+import { generalSplitConfigSchema } from "./generalSplit.schema.js";
 
 const statusSchema = z.enum(["DRAFT", "OPEN", "CLOSED"]);
 
@@ -59,13 +60,15 @@ export const createEventSchema = z
     startsAt: z.coerce.date(),
     endsAt: z.coerce.date(),
     status: statusSchema.optional(),
-    kind: z.enum(["STANDARD", "PIZZA_SPLIT"]).default("STANDARD"),
+    kind: z.enum(["STANDARD", "PIZZA_SPLIT", "GENERAL_SPLIT"]).default("STANDARD"),
     // STANDARD
     typeId: z.string().trim().min(1).optional(),
     newType: newTypeSchema.optional(),
     hasServiceFee: z.boolean().optional(),
     serviceFeePercent: z.coerce.number().optional(),
     goal: goalSchema.optional(),
+    // GENERAL_SPLIT (racha geral)
+    generalSplit: generalSplitConfigSchema.optional(),
     // PIZZA_SPLIT (defaults no service)
     maxFlavorsPerOrder: z.coerce.number().int().optional(),
     slicesPerPizza: z.coerce.number().int().optional(),
@@ -156,6 +159,14 @@ export const createEventSchema = z
           code: z.ZodIssueCode.custom,
           path: ["avgLargePizzaPrice"],
           message: "Valor médio da pizza deve ser maior que zero.",
+        });
+      }
+    } else if (d.kind === "GENERAL_SPLIT") {
+      if (!d.generalSplit) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["generalSplit"],
+          message: "Informe o que vai ser comprado e o valor total.",
         });
       }
     } else {

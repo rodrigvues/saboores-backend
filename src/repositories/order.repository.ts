@@ -289,6 +289,7 @@ class OrderRepository {
           select: {
             id: true,
             name: true,
+            kind: true,
             status: true,
             startsAt: true,
             endsAt: true,
@@ -391,8 +392,11 @@ class OrderRepository {
     });
   }
 
-  async cancel(id: string) {
-    return prisma.order.update({
+  async cancel(id: string, tx?: Prisma.TransactionClient) {
+    // O cancelamento do racha geral roda DENTRO do lock (RN-22); os chamadores
+    // atuais não passam `tx` e não mudam.
+    const client = tx ?? prisma;
+    return client.order.update({
       where: {
         id,
       },
@@ -529,8 +533,16 @@ class OrderRepository {
         id: true,
         serviceFee: true,
         serviceFeePercent: true,
+        amountDueCents: true,
         user: { select: { name: true, email: true } },
-        event: { select: { id: true, name: true } },
+        event: {
+          select: {
+            id: true,
+            name: true,
+            kind: true,
+            generalSplit: { select: { purchaseName: true } },
+          },
+        },
         orderItems: {
           select: {
             quantity: true,

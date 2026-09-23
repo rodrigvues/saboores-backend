@@ -17,6 +17,12 @@ function flavorNameKey(name: string): string {
 class FlavorService {
   /** Sabores para a escolha do participante numa rodada (globais + extras do evento). */
   async listForEvent(eventId: string, requester: Requester): Promise<FlavorDto[]> {
+    // Sabor só existe no racha de pizza; nos demais modos a lista global levaria
+    // a uma escolha sem destino (INV-A16), então devolvemos vazio de saída.
+    const core = await eventRepository.findPizzaCore(eventId);
+    if (core?.kind !== "PIZZA_SPLIT") {
+      return [];
+    }
     const manages =
       requester.isAdmin ||
       (await eventOrganizerRepository.exists(eventId, requester.userId));

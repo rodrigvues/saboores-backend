@@ -24,9 +24,15 @@ function handleError(error: unknown, res: Response) {
 
 class EventController {
   async index(req: Request, res: Response) {
-    const events = await eventService.getEvents();
-
-    return res.json(events);
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+    try {
+      const events = await eventService.getEvents(req.user.id);
+      return res.json(events);
+    } catch (error) {
+      return handleError(error, res);
+    }
   }
 
   /** GET /events/managed — rodadas que o usuário gerencia (Parte 1). */
@@ -94,19 +100,22 @@ class EventController {
     if (!req.user) {
       return res.status(401).json({ message: "Autenticação necessária." });
     }
-
-    const event = await eventService.getEventById({
-      id: req.params.id as string,
-      userId: req.user.id,
-    });
-
-    if (!event) {
-      return res.status(404).json({
-        message: "Evento não encontrado.",
+    try {
+      const event = await eventService.getEventById({
+        id: req.params.id as string,
+        userId: req.user.id,
       });
-    }
 
-    return res.json(event);
+      if (!event) {
+        return res.status(404).json({
+          message: "Evento não encontrado.",
+        });
+      }
+
+      return res.json(event);
+    } catch (error) {
+      return handleError(error, res);
+    }
   }
 
   async orders(req: Request, res: Response) {

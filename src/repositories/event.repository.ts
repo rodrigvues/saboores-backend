@@ -147,6 +147,20 @@ class EventRepository {
     return prisma.event.update({ where: { id }, data, select: detailSelect });
   }
 
+  /** Racha geral — grava `Event.status = CLOSED` na mesma transação do `close`. */
+  async setStatus(id: string, status: EventStatus, tx?: Tx) {
+    const client = tx ?? prisma;
+    return client.event.update({ where: { id }, data: { status }, select: { id: true } });
+  }
+
+  /** Criador de cada evento do lote (dono do resíduo de centavos no racha geral). */
+  async findCreatorsByIds(ids: string[]) {
+    return prisma.event.findMany({
+      where: { id: { in: ids } },
+      select: { id: true, createdByUserId: true },
+    });
+  }
+
   /** Janela/status/modo para validar edição (datas coerentes, ciclo de vida). */
   async findForUpdate(id: string) {
     return prisma.event.findUnique({
