@@ -1,6 +1,7 @@
 import { toUserDto } from "../dtos/user.dto.js";
 import { toPublicProfileDto } from "../dtos/publicProfile.dto.js";
 import { userRepository } from "../repositories/user.repository.js";
+import { rankingSeasonRepository } from "../repositories/rankingSeason.repository.js";
 import { rankingService } from "./ranking.service.js";
 import { uploadAvatar } from "../lib/storage.js";
 import { HttpError } from "../utils/http-error.js";
@@ -71,7 +72,8 @@ class ProfileService {
       throw new HttpError(404, "Perfil não encontrado.");
     }
     const statsAndRank = await rankingService.getUserStatsAndRank(id);
-    return toPublicProfileDto(user, statsAndRank);
+    const titles = await rankingSeasonRepository.countTitles(id);
+    return toPublicProfileDto(user, statsAndRank, titles);
   }
 }
 

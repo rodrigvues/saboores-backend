@@ -51,6 +51,20 @@ const envSchema = z.object({
   DEFAULT_SLICES_PER_PIZZA: z.coerce.number().int().positive().default(8),
   // Bucket do Supabase Storage para a evidência de custo do racha (RP9).
   SUPABASE_EVENT_EVIDENCE_BUCKET: z.string().default("event-evidence"),
+  // ── Frente 5: ranking por temporada + prêmio ────────────────
+  // Conta dona das rodadas de encomenda cujo lucro vira prêmio.
+  RANKING_PRIZE_OWNER_EMAIL: z.string().min(1).default("vitor.rodrigues@vertrau.capital"),
+  // Fração do lucro que vira prêmio. NUNCA sai na API nem na tela.
+  // O `default` fica DENTRO do preprocess: `.default()` só cobre `undefined`, e a
+  // linha `RANKING_PRIZE_SHARE=` vazia viraria 0 no coerce, zerando o prêmio em silêncio.
+  RANKING_PRIZE_SHARE: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z.coerce.number().min(0).max(1).default(0.3),
+  ),
+  // Fechamento de temporada: 00:05 do dia 4 (fuso aplicado no job), depois da carência.
+  RANKING_SEASON_CRON: z.string().default("5 0 4 * *"),
+  // Carência antes de congelar a temporada (decisão 16), em horas a partir do fim da janela.
+  RANKING_SEASON_GRACE_HOURS: z.coerce.number().int().min(0).default(72),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -110,6 +124,11 @@ export const env = {
   defaultLargePizzaPrice: raw.DEFAULT_LARGE_PIZZA_PRICE,
   defaultSlicesPerPizza: raw.DEFAULT_SLICES_PER_PIZZA,
   supabaseEventEvidenceBucket: raw.SUPABASE_EVENT_EVIDENCE_BUCKET,
+  // Frente 5 — ranking por temporada + prêmio.
+  rankingPrizeOwnerEmail: raw.RANKING_PRIZE_OWNER_EMAIL.trim().toLowerCase(),
+  rankingPrizeShare: raw.RANKING_PRIZE_SHARE,
+  rankingSeasonCron: raw.RANKING_SEASON_CRON,
+  rankingSeasonGraceHours: raw.RANKING_SEASON_GRACE_HOURS,
 } as const;
 
 // Em produção, e-mail é necessário (fluxo "esqueci a senha"). Em dev, o serviço
@@ -119,4 +138,10 @@ if (env.isProd && !env.gmailUser && !env.resendApiKey) {
     "⚠️  Nenhum transporte de e-mail configurado em produção (defina GMAIL_USER + " +
       "GMAIL_APP_PASSWORD, ou RESEND_API_KEY): o envio de e-mail ficará indisponível.",
   );
+}
+
+// Fração 0 é configuração válida, mas o prêmio fica "0.00" para sempre e a tela
+// mostra o estado zero como se faltassem rodadas. Denuncie no boot.
+if (env.rankingPrizeShare === 0) {
+  console.warn("⚠️  RANKING_PRIZE_SHARE = 0: o prêmio será sempre R$ 0,00.");
 }

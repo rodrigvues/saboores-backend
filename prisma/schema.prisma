@@ -79,6 +79,8 @@ model User {
   passwordResets PasswordResetToken[]
   // F3.1/F3.2/F3.7 — ações de auditoria que este usuário executou
   auditActions   AuditLog[]           @relation("AuditActor")
+  // Frente 5 — temporadas em que este usuário foi campeão.
+  rankingTitles  RankingSeason[]      @relation("RankingChampion")
   createdAt      DateTime             @default(now())
 }
 
@@ -241,6 +243,9 @@ model Order {
   @@index([eventId, createdAt])
   // Histórico do usuário por item: filtra Order por (userId, status) no join.
   @@index([userId, status])
+  // Frente 5 — ranking filtra por (status, createdAt); prêmio por (paymentStatus, createdAt).
+  @@index([status, createdAt])
+  @@index([paymentStatus, createdAt])
 }
 
 model OrderItem {
@@ -361,4 +366,24 @@ model AuditLog {
 
   @@index([actorId])
   @@index([targetId])
+}
+
+// Frente 5 — temporada do ranking fechada no dia 1º. Os campos `champion*` são
+// SNAPSHOT: o apelido e o avatar são os do momento do fechamento.
+model RankingSeason {
+  id                  String   @id @default(cuid())
+  period              String   @unique // 'YYYY-MM' no fuso America/Sao_Paulo
+  closedAt            DateTime
+  championUserId      String?
+  championDisplayName String?
+  championAvatarUrl   String?
+  championPoints      Int      @default(0)
+  participants        Int      @default(0)
+  // Prêmio vigente no instante do fechamento (registro; não é promessa de pagamento).
+  prizeAmountCents    Int?
+  createdAt           DateTime @default(now())
+
+  championUser User? @relation("RankingChampion", fields: [championUserId], references: [id])
+
+  @@index([championUserId])
 }

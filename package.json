@@ -11,7 +11,9 @@
     "test:engine:general": "tsx src/services/generalSplit.engine.spec.ts",
     "test:engines": "npm run test:engine && npm run test:engine:general",
     "test:ordering": "tsx src/services/itemOrdering.engine.spec.ts",
-    "test:units": "npm run test:engine && npm run test:ordering && npm run test:engine:general"
+    "test:ranking": "tsx src/services/ranking.engine.spec.ts",
+    "test:period": "tsx src/utils/period.spec.ts",
+    "test:units": "npm run test:engine && npm run test:ordering && npm run test:engine:general && npm run test:ranking && npm run test:period"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

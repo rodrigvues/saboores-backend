@@ -24,13 +24,17 @@ export type PublicProfileDto = {
     roundsParticipated: number;
     itemsAcquired: number;
     points: number;
+    pointsAllTime: number;
   };
   rank: number | null;
+  season: { period: string; label: string };
+  titles: number;
 };
 
 export function toPublicProfileDto(
   user: PublicProfileRecord,
   statsAndRank: UserStatsAndRank,
+  titles: number,
 ): PublicProfileDto {
   return {
     id: user.id,
@@ -42,7 +46,10 @@ export function toPublicProfileDto(
       roundsParticipated: statsAndRank.roundsParticipated,
       itemsAcquired: statsAndRank.itemsAcquired,
       points: statsAndRank.points,
+      pointsAllTime: statsAndRank.pointsAllTime,
     },
     rank: statsAndRank.rank,
+    season: statsAndRank.season,
+    titles,
   };
 }

@@ -342,6 +342,8 @@ class OrderService {
 
     const cancelled = await orderRepository.cancel(id);
 
+    // Cancelamento pelo organizador tira um pedido válido do mês: limpa o cache.
+    rankingService.invalidate();
     // Quem perdeu o pedido é o dono, não o organizador que apertou o botão.
     itemHistoryService.invalidateUser(order.userId);
 
