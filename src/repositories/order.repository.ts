@@ -37,7 +37,7 @@ class OrderRepository {
         createdByUserId: true,
         // Encomenda — taxa de serviço a "congelar" no pedido.
         hasServiceFee: true,
-        serviceFeeAmount: true,
+        serviceFeePercent: true,
       },
     });
   }
@@ -220,8 +220,10 @@ class OrderRepository {
   async create(data: {
     userId: string;
     eventId: string;
-    /** Snapshot da taxa de serviço da rodada (null = sem taxa). */
+    /** Snapshot da taxa de serviço da rodada em reais (null = sem taxa). */
     serviceFee: Prisma.Decimal | null;
+    /** Snapshot do percentual aplicado (só rótulo do recibo; null = sem taxa). */
+    serviceFeePercent: Prisma.Decimal | null;
     items: {
       itemId: string;
       quantity: number;
@@ -234,6 +236,7 @@ class OrderRepository {
           userId: data.userId,
           eventId: data.eventId,
           serviceFee: data.serviceFee,
+          serviceFeePercent: data.serviceFeePercent,
           orderItems: {
             create: data.items.map((item) => ({
               itemId: item.itemId,
@@ -520,6 +523,7 @@ class OrderRepository {
       select: {
         id: true,
         serviceFee: true,
+        serviceFeePercent: true,
         user: { select: { name: true, email: true } },
         event: { select: { id: true, name: true } },
         orderItems: {

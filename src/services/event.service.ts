@@ -106,7 +106,7 @@ class EventService {
         pixKey: input.pixKey ?? null,
         pixQrUrl: input.pixQrUrl ?? null,
         hasServiceFee: input.hasServiceFee ?? false,
-        serviceFeeAmount: input.hasServiceFee ? input.serviceFeeAmount ?? null : null,
+        serviceFeePercent: input.hasServiceFee ? input.serviceFeePercent ?? null : null,
         tx,
       });
 
@@ -236,7 +236,7 @@ class EventService {
     // Taxa de serviço só existe na encomenda (STANDARD).
     const feeProvided =
       params.input.hasServiceFee !== undefined ||
-      params.input.serviceFeeAmount !== undefined;
+      params.input.serviceFeePercent !== undefined;
     if (feeProvided && current.kind !== "STANDARD") {
       throw new HttpError(400, "Taxa de serviço só se aplica a rodadas de encomenda.");
     }
@@ -253,8 +253,8 @@ class EventService {
       pixQrUrl: params.input.pixQrUrl,
       hasServiceFee: params.input.hasServiceFee,
       // Desligar a taxa zera o valor guardado (evita "taxa fantasma" ao religar).
-      serviceFeeAmount:
-        params.input.hasServiceFee === false ? null : params.input.serviceFeeAmount,
+      serviceFeePercent:
+        params.input.hasServiceFee === false ? null : params.input.serviceFeePercent,
     });
 
     await auditService.log({

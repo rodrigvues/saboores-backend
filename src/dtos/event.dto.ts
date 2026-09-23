@@ -34,7 +34,7 @@ type EventDetailsRecord = {
   pixKey: string | null;
   pixQrUrl: string | null;
   hasServiceFee: boolean;
-  serviceFeeAmount: Prisma.Decimal | null;
+  serviceFeePercent: Prisma.Decimal | null;
   actualTotalCost: Prisma.Decimal | null;
   costEvidenceUrl: string | null;
   costRegisteredAt: Date | null;
@@ -105,8 +105,8 @@ export type EventDetailsDto = {
   createdAt: Date;
   maxItemsPerOrder: number;
   kind: EventKind;
-  /** Taxa de serviço por pedido (encomenda). Null quando a rodada não cobra taxa. */
-  serviceFee: string | null;
+  /** Percentual da taxa sobre o subtotal (encomenda). Null quando a rodada não cobra taxa. */
+  serviceFeePercent: string | null;
   /** Recebimento PIX da rodada (vale para os dois modos). */
   pixKey: string | null;
   pixQrUrl: string | null;
@@ -190,9 +190,9 @@ export function toEventDetailsDto(
     createdAt: event.createdAt,
     maxItemsPerOrder: event.maxItemsPerOrder,
     kind: event.kind,
-    serviceFee:
-      event.hasServiceFee && event.serviceFeeAmount
-        ? event.serviceFeeAmount.toString()
+    serviceFeePercent:
+      event.hasServiceFee && event.serviceFeePercent
+        ? event.serviceFeePercent.toString()
         : null,
     pixKey: event.pixKey,
     pixQrUrl: event.pixQrUrl,

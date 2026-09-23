@@ -128,8 +128,8 @@ model Event {
   pixQrUrl           String?
 
   // ── Encomenda (STANDARD): taxa de serviço por pedido, opcional ──
-  hasServiceFee    Boolean  @default(false)
-  serviceFeeAmount Decimal? // valor da taxa quando ativa
+  hasServiceFee     Boolean  @default(false)
+  serviceFeePercent Decimal? // percentual sobre o subtotal do pedido (10 = 10%)
 
   // ── Custo real + evidência + ciclo de vida derivado (RP9/RP10) ──
   actualTotalCost  Decimal?
@@ -183,9 +183,10 @@ model Order {
   //    governa a janela de edição de 10 min. ──
   slicesWanted  Int?     // "quantas fatias você geralmente come" (motor)
   amountDue     Decimal? // valor real após o rateio igualitário (snapshot no custo)
-  // Encomenda — taxa de serviço da rodada no momento do pedido (snapshot, como
-  // `unitPrice` do OrderItem; null = pedido sem taxa).
-  serviceFee    Decimal?
+  // Encomenda — taxa congelada no pedido (como o `unitPrice` do OrderItem):
+  // `serviceFee` são os reais cobrados, `serviceFeePercent` é só o rótulo do recibo.
+  serviceFee        Decimal?
+  serviceFeePercent Decimal?
 
   user        User             @relation(fields: [userId], references: [id])
   event       Event            @relation(fields: [eventId], references: [id])

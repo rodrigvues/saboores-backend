@@ -18,6 +18,7 @@ export const AuditAction = {
   ORDER_CANCELLED: "ORDER_CANCELLED",
   EVENT_CHOICES_LOCKED: "EVENT_CHOICES_LOCKED",
   EVENT_COST_REGISTERED: "EVENT_COST_REGISTERED",
+  EVENT_SERVICE_FEE_MIGRATED: "EVENT_SERVICE_FEE_MIGRATED",
 } as const;
 
 export type AuditAction = (typeof AuditAction)[keyof typeof AuditAction];

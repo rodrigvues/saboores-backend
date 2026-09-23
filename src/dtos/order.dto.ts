@@ -26,8 +26,10 @@ type OrderBaseRecord = {
   confirmedAt?: Date | null;
   cancelledAt?: Date | null;
   deliveredAt?: Date | null;
-  /** Snapshot da taxa de serviço (encomenda). Null = pedido sem taxa. */
+  /** Snapshot da taxa de serviço em reais (encomenda). Null = pedido sem taxa. */
   serviceFee?: Prisma.Decimal | null;
+  /** Snapshot do percentual aplicado (só rótulo). Null = pedido sem taxa. */
+  serviceFeePercent?: Prisma.Decimal | null;
   event?: OrderEventRecord;
   orderItems: OrderItemRecord[];
 };
@@ -70,6 +72,8 @@ export type CreatedOrderDto = {
   items: OrderItemDto[];
   /** Taxa de serviço da rodada (string Decimal) ou null. Já somada em `total`. */
   serviceFee: string | null;
+  /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
+  serviceFeePercent: string | null;
   total: string;
 };
 
@@ -91,6 +95,8 @@ export type UserOrderDto = {
   items: OrderItemDto[];
   /** Taxa de serviço da rodada (string Decimal) ou null. Já somada em `total`. */
   serviceFee: string | null;
+  /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
+  serviceFeePercent: string | null;
   total: string;
 };
 
@@ -130,6 +136,8 @@ export type AdminEventOrderDto = {
   items: OrderItemDto[];
   /** Taxa de serviço da rodada (string Decimal) ou null. Já somada em `total`. */
   serviceFee: string | null;
+  /** Percentual aplicado no momento do pedido (ex.: "10"). Null = pedido sem taxa. */
+  serviceFeePercent: string | null;
   total: string;
 };
 
@@ -158,6 +166,8 @@ export type EventSummaryDto = {
     items: Omit<OrderItemDto, "unitPrice">[];
     /** Taxa de serviço do pedido (string Decimal) ou null. Já somada em `total`. */
     serviceFee: string | null;
+    /** Percentual aplicado no pedido (ex.: "10"). Null = pedido sem taxa. */
+    serviceFeePercent: string | null;
     total: string;
   }[];
   /** Soma dos totais por pessoa (itens + taxas de serviço). */
@@ -241,8 +251,8 @@ function getOrderTotal(order: Pick<OrderBaseRecord, "orderItems" | "serviceFee">
   return getOrderItemsTotal(order.orderItems).plus(order.serviceFee ?? 0);
 }
 
-function serviceFeeToString(serviceFee: Prisma.Decimal | null | undefined) {
-  return serviceFee?.toString() ?? null;
+function decimalToString(value: Prisma.Decimal | null | undefined) {
+  return value?.toString() ?? null;
 }
 
 function toOrderItemsDto(orderItems: OrderItemRecord[]): OrderItemDto[] {
@@ -265,7 +275,8 @@ export function toCreatedOrderDto(order: OrderBaseRecord & { event: OrderEventRe
       title: order.event.name,
     },
     items: toOrderItemsDto(order.orderItems),
-    serviceFee: serviceFeeToString(order.serviceFee),
+    serviceFee: decimalToString(order.serviceFee),
+    serviceFeePercent: decimalToString(order.serviceFeePercent),
     total: getOrderTotal(order).toString(),
   };
 }
@@ -289,7 +300,8 @@ export function toUserOrderDto(
       endsAt: order.event.endsAt,
     },
     items: toOrderItemsDto(order.orderItems),
-    serviceFee: serviceFeeToString(order.serviceFee),
+    serviceFee: decimalToString(order.serviceFee),
+    serviceFeePercent: decimalToString(order.serviceFeePercent),
     total: getOrderTotal(order).toString(),
   };
 }
@@ -350,7 +362,8 @@ export function toAdminEventOrderDto(order: AdminOrderRecord): AdminEventOrderDt
     paymentStatus: order.paymentStatus,
     createdAt: order.createdAt,
     items: toOrderItemsDto(order.orderItems),
-    serviceFee: serviceFeeToString(order.serviceFee),
+    serviceFee: decimalToString(order.serviceFee),
+    serviceFeePercent: decimalToString(order.serviceFeePercent),
     total: getOrderTotal(order).toString(),
   };
 }
@@ -391,7 +404,8 @@ export function toEventSummaryDto(
         title: orderItem.item.name,
         quantity: orderItem.quantity,
       })),
-      serviceFee: serviceFeeToString(order.serviceFee),
+      serviceFee: decimalToString(order.serviceFee),
+      serviceFeePercent: decimalToString(order.serviceFeePercent),
       total: orderTotal.toString(),
     };
   });

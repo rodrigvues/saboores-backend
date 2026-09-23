@@ -16,6 +16,7 @@ import { flavorRepository } from "../repositories/flavor.repository.js";
 import { preferenceQuestionRepository } from "../repositories/preferenceQuestion.repository.js";
 import { rankingService } from "./ranking.service.js";
 import { itemHistoryService } from "./itemHistory.service.js";
+import { serviceFeeCents } from "./serviceFee.engine.js";
 import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { emailService } from "./email.service.js";
 import { auditService, AuditAction } from "./audit.service.js";
@@ -99,14 +100,23 @@ class OrderService {
       };
     });
 
-    // Taxa de serviço da rodada vira snapshot do pedido (como o unitPrice dos itens).
-    const serviceFee =
-      event.hasServiceFee && event.serviceFeeAmount ? event.serviceFeeAmount : null;
+    // A taxa é percentual sobre o subtotal e vira snapshot do pedido, como o
+    // `unitPrice` do item: mudar a rodada depois não mexe em pedido já criado.
+    const subtotalCents = orderItems.reduce(
+      (acc, oi) => acc + Math.round(oi.unitPrice.toNumber() * 100) * oi.quantity,
+      0,
+    );
+    const percent =
+      event.hasServiceFee && event.serviceFeePercent
+        ? event.serviceFeePercent.toNumber()
+        : null;
+    const feeCents = percent === null ? null : serviceFeeCents(subtotalCents, percent);
 
     const order = await orderRepository.create({
       userId,
       eventId: event.id,
-      serviceFee,
+      serviceFee: feeCents === null ? null : new Prisma.Decimal(feeCents).div(100),
+      serviceFeePercent: percent === null ? null : new Prisma.Decimal(percent),
       items: orderItems,
     });
 
@@ -446,6 +456,8 @@ class OrderService {
             quantity: oi.quantity,
             title: oi.item.name,
           })),
+          serviceFee: details.serviceFee?.toString() ?? null,
+          serviceFeePercent: details.serviceFeePercent?.toString() ?? null,
           total: total.toString(),
         });
       } else {

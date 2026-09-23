@@ -35,7 +35,7 @@ const detailSelect = {
   pixQrUrl: true,
   // Encomenda — taxa de serviço (null/false no racha).
   hasServiceFee: true,
-  serviceFeeAmount: true,
+  serviceFeePercent: true,
   actualTotalCost: true,
   costEvidenceUrl: true,
   costRegisteredAt: true,
@@ -101,7 +101,7 @@ class EventRepository {
     pixKey?: string | null;
     pixQrUrl?: string | null;
     hasServiceFee?: boolean;
-    serviceFeeAmount?: number | null;
+    serviceFeePercent?: number | null;
     tx?: Tx;
   }) {
     const client = data.tx ?? prisma;
@@ -120,7 +120,7 @@ class EventRepository {
         pixKey: data.pixKey ?? null,
         pixQrUrl: data.pixQrUrl ?? null,
         hasServiceFee: data.hasServiceFee ?? false,
-        serviceFeeAmount: data.serviceFeeAmount ?? null,
+        serviceFeePercent: data.serviceFeePercent ?? null,
       },
       select: detailSelect,
     });
@@ -139,7 +139,7 @@ class EventRepository {
       pixKey?: string;
       pixQrUrl?: string;
       hasServiceFee?: boolean;
-      serviceFeeAmount?: number | null;
+      serviceFeePercent?: number | null;
     },
   ) {
     return prisma.event.update({ where: { id }, data, select: detailSelect });

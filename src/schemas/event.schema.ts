@@ -1,4 +1,9 @@
 import { z } from "zod";
+import {
+  MAX_SERVICE_FEE_PERCENT,
+  MIN_SERVICE_FEE_PERCENT,
+  hasMoreThanTwoDecimals,
+} from "../services/serviceFee.engine.js";
 
 const statusSchema = z.enum(["DRAFT", "OPEN", "CLOSED"]);
 
@@ -26,7 +31,7 @@ const extraFlavorSchema = z.object({
  * POST /events — união por `kind`:
  * - STANDARD (default): usa **um Tipo existente** (`typeId`) **ou** **um Tipo novo
  *   inline** (`newType`). Exatamente um dos dois (encomenda/pastel). PIX
- *   obrigatório + taxa de serviço opcional (`hasServiceFee`/`serviceFeeAmount`).
+ *   obrigatório + taxa de serviço opcional (`hasServiceFee`/`serviceFeePercent`).
  * - PIZZA_SPLIT: **sem** Type; config do motor (`maxFlavorsPerOrder`, `slicesPerPizza`,
  *   `avgLargePizzaPrice`) + PIX obrigatório. Defaults aplicados no service.
  *
@@ -43,7 +48,7 @@ export const createEventSchema = z
     typeId: z.string().trim().min(1).optional(),
     newType: newTypeSchema.optional(),
     hasServiceFee: z.boolean().optional(),
-    serviceFeeAmount: z.coerce.number().optional(),
+    serviceFeePercent: z.coerce.number().optional(),
     // PIZZA_SPLIT (defaults no service)
     maxFlavorsPerOrder: z.coerce.number().int().optional(),
     slicesPerPizza: z.coerce.number().int().optional(),
@@ -70,20 +75,34 @@ export const createEventSchema = z
       });
     }
 
-    // Taxa de serviço só existe na encomenda; ativa exige valor > 0.
+    // A checagem de modo vale para os DOIS campos, fora do `if`: sem isso,
+    // `{ kind: "PIZZA_SPLIT", serviceFeePercent: 10 }` passaria calado (RN-1).
+    if ((d.hasServiceFee || d.serviceFeePercent !== undefined) && d.kind !== "STANDARD") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["hasServiceFee"],
+        message: "Taxa de serviço só se aplica a rodadas de encomenda.",
+      });
+    }
+
     if (d.hasServiceFee) {
-      if (d.kind !== "STANDARD") {
+      if (d.serviceFeePercent === undefined || d.serviceFeePercent < MIN_SERVICE_FEE_PERCENT) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["hasServiceFee"],
-          message: "Taxa de serviço só se aplica a rodadas de encomenda.",
+          path: ["serviceFeePercent"],
+          message: "Informe o percentual da taxa (entre 0,01% e 100%).",
         });
-      }
-      if (d.serviceFeeAmount === undefined || d.serviceFeeAmount <= 0) {
+      } else if (d.serviceFeePercent > MAX_SERVICE_FEE_PERCENT) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
-          path: ["serviceFeeAmount"],
-          message: "Informe o valor da taxa (maior que zero).",
+          path: ["serviceFeePercent"],
+          message: "O percentual da taxa não pode passar de 100%.",
+        });
+      } else if (hasMoreThanTwoDecimals(d.serviceFeePercent)) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ["serviceFeePercent"],
+          message: "Use no máximo duas casas decimais no percentual.",
         });
       }
     }
@@ -138,17 +157,30 @@ export const updateEventSchema = z
     avgLargePizzaPrice: z.coerce.number().positive().optional(),
     pixKey: z.string().trim().min(1).optional(),
     pixQrUrl: z.string().trim().url("QR PIX deve ser uma URL válida.").optional(),
-    // Encomenda — taxa de serviço (desligar zera o valor no service).
+    // Encomenda — taxa de serviço em percentual (desligar zera o valor no service).
     hasServiceFee: z.boolean().optional(),
-    serviceFeeAmount: z.coerce.number().positive("Informe o valor da taxa (maior que zero).").optional(),
+    serviceFeePercent: z.coerce
+      .number()
+      .min(MIN_SERVICE_FEE_PERCENT, "Informe o percentual da taxa (entre 0,01% e 100%).")
+      .max(MAX_SERVICE_FEE_PERCENT, "O percentual da taxa não pode passar de 100%.")
+      .optional(),
   })
   .refine((d) => Object.keys(d).length > 0, {
     message: "Nada para atualizar.",
   })
-  .refine((d) => !d.hasServiceFee || d.serviceFeeAmount !== undefined, {
-    path: ["serviceFeeAmount"],
-    message: "Informe o valor da taxa (maior que zero).",
-  });
+  .refine((d) => !d.hasServiceFee || d.serviceFeePercent !== undefined, {
+    path: ["serviceFeePercent"],
+    message: "Informe o percentual da taxa (entre 0,01% e 100%).",
+  })
+  // Sem este refine a regra das duas casas valeria só no POST, e o PATCH gravaria
+  // 10.005 no banco, quebrando o contrato de arredondamento da decisão 5.
+  .refine(
+    (d) => d.serviceFeePercent === undefined || !hasMoreThanTwoDecimals(d.serviceFeePercent),
+    {
+      path: ["serviceFeePercent"],
+      message: "Use no máximo duas casas decimais no percentual.",
+    },
+  );
 
 /** POST /events/:id/cost — custo real (multipart; evidência é o arquivo). */
 export const registerCostSchema = z.object({

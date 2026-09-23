@@ -108,13 +108,22 @@ class EmailService {
     name: string;
     eventName: string;
     items: { quantity: number; title: string }[];
+    serviceFee?: string | null;
+    serviceFeePercent?: string | null;
     total: string;
   }) {
     const url = `${env.appUrl}/pedidos`;
     const subject = `Pagamento confirmado — ${params.eventName}`;
+    // O e-mail é pt-BR e o Decimal chega como "0.75" / "11"; sem isto sai "R$ 11".
+    const brl = (v: string) => Number(v).toFixed(2).replace(".", ",");
+    const feeLabel = params.serviceFeePercent
+      ? `Taxa de serviço (${params.serviceFeePercent.replace(".", ",")}%)`
+      : "Taxa de serviço";
     const itemsText = params.items
       .map((item) => `  - ${item.quantity}× ${item.title}`)
       .join("\n");
+    const feeText =
+      params.serviceFee != null ? [`${feeLabel}: R$ ${brl(params.serviceFee)}`] : [];
     const text = [
       `Olá, ${params.name}!`,
       "",
@@ -122,7 +131,8 @@ class EmailService {
       "",
       itemsText,
       "",
-      `Total: R$ ${params.total}`,
+      ...feeText,
+      `Total: R$ ${brl(params.total)}`,
       "",
       `Acompanhe em: ${url}`,
     ].join("\n");
@@ -136,7 +146,8 @@ class EmailService {
         <p>Olá, <strong>${params.name}</strong>! Confirmamos o pagamento do seu pedido na rodada
           <strong>${params.eventName}</strong>.</p>
         <ul style="color:#52606d;">${itemsHtml}</ul>
-        <p style="font-weight:600;">Total: R$ ${params.total}</p>
+        ${params.serviceFee != null ? `<p style="color:#e8590c;">${feeLabel}: R$ ${brl(params.serviceFee)}</p>` : ""}
+        <p style="font-weight:600;">Total: R$ ${brl(params.total)}</p>
         <p>
           <a href="${url}"
              style="display:inline-block;background:#e8590c;color:#fff;text-decoration:none;padding:10px 18px;border-radius:8px;font-weight:600;">
