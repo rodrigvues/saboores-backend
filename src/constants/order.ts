@@ -16,11 +16,14 @@ export const ACTIVE_PARTICIPATION_STATUSES: OrderStatus[] = [
 ];
 
 /**
- * Racha de pizza — janela em que o participante ainda edita a própria entrada
- * (RP5 RN4): a partir de `Order.createdAt`, por 10 minutos. Passado isso (ou com
- * a rodada fechada/escolhas travadas), só o organizador mexe.
+ * Janela em que o participante ainda edita a própria entrada, contada a partir de
+ * `Order.createdAt`. Vale para os dois rachas. Passado isso (ou com a rodada
+ * fechada), só o organizador mexe.
  */
-export const PIZZA_EDIT_WINDOW_MS = 10 * 60 * 1000;
+export const EDIT_WINDOW_MS = 10 * 60 * 1000;
+
+/** @deprecated Use `EDIT_WINDOW_MS`. Mantido para não quebrar os usos do racha de pizza. */
+export const PIZZA_EDIT_WINDOW_MS = EDIT_WINDOW_MS;
 
 /**
  * Quantos itens ganham o selo "mais pedidos" na vitrine da encomenda. Dois é o

@@ -19,10 +19,19 @@ enum EventStatus {
 }
 
 // Modo da rodada. STANDARD = venda a preço fixo (pastel, fluxo original).
-// PIZZA_SPLIT = racha de pizza (rateio igualitário do custo real).
+// PIZZA_SPLIT = racha de pizza (rateio do custo real, descoberto no fim).
+// GENERAL_SPLIT = racha geral (uma compra, valor total conhecido, dividido entre quem entra).
 enum EventKind {
   STANDARD
   PIZZA_SPLIT
+  GENERAL_SPLIT
+}
+
+// Como o valor por pessoa é definido num racha geral. DYNAMIC = cai a cada entrada
+// e só fecha quando o organizador fecha. TARGET = já nasce definido (total / alvo).
+enum SplitMode {
+  DYNAMIC
+  TARGET
 }
 
 enum OrderStatus {
@@ -144,9 +153,36 @@ model Event {
   orders        Order[]
   organizers    EventOrganizer[] // F3.1 — quem pode gerenciar este evento
   flavors       Flavor[] // sabores extras deste evento (eventId preenchido)
+  generalSplit  GeneralSplit? // racha geral (GENERAL_SPLIT): config + estado
 
   @@index([typeId])
   @@index([createdByUserId])
+}
+
+// Racha geral (GENERAL_SPLIT) — uma linha por evento. Fica fora de `Event` porque
+// estes campos só existem juntos e porque esta linha é o ponto de serialização
+// (SELECT ... FOR UPDATE) de toda escrita do racha.
+model GeneralSplit {
+  id                 String    @id @default(cuid())
+  eventId            String    @unique
+  // O que vai ser comprado, do jeito que o criador escreveu ("Cento de salgado").
+  purchaseName       String
+  totalAmountCents   Int
+  mode               SplitMode
+  // Só no TARGET: quantas pessoas devem compor o racha (>= 2). NULL no DYNAMIC.
+  targetParticipants Int?
+  // Agregados derivados de Order (cache do UPDATE condicional; ver plano 02).
+  participantCount   Int       @default(0)
+  pinnedBps          Int       @default(0)
+  // Token de concorrência otimista: sobe 1 a cada escrita aceita.
+  version            Int       @default(0)
+  // TARGET: alcançou o alvo. DYNAMIC: sempre NULL.
+  completedAt        DateTime?
+  // Fechado pelo organizador: a partir daqui todo amountDueCents está congelado.
+  settledAt          DateTime?
+  createdAt          DateTime  @default(now())
+
+  event Event @relation(fields: [eventId], references: [id], onDelete: Cascade)
 }
 
 model Item {
@@ -188,6 +224,13 @@ model Order {
   serviceFee        Decimal?
   serviceFeePercent Decimal?
 
+  // ── Racha geral: participação. `sharePercentBps` NULL = flutuante (divide o
+  //    que sobra). `amountDueCents` NULL = ainda não há valor devido. ──
+  sharePercentBps Int?
+  amountDueCents  Int?
+  // Protege POST duplicado (toque duplo / retry de rede) na entrada do racha.
+  idempotencyKey  String? @unique
+
   user        User             @relation(fields: [userId], references: [id])
   event       Event            @relation(fields: [eventId], references: [id])
   orderItems  OrderItem[]
@@ -195,7 +238,7 @@ model Order {
   preferences OrderPreference[] // respostas do formulário (racha)
 
   @@index([userId])
-  @@index([eventId])
+  @@index([eventId, createdAt])
   // Histórico do usuário por item: filtra Order por (userId, status) no join.
   @@index([userId, status])
 }
