@@ -89,7 +89,14 @@ class EventController {
   }
 
   async show(req: Request, res: Response) {
-    const event = await eventService.getEventById(req.params.id as string);
+    if (!req.user) {
+      return res.status(401).json({ message: "Autenticação necessária." });
+    }
+
+    const event = await eventService.getEventById({
+      id: req.params.id as string,
+      userId: req.user.id,
+    });
 
     if (!event) {
       return res.status(404).json({

@@ -156,11 +156,16 @@ model Item {
   price     Decimal
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+  // Agregado DERIVADO (cache) de unidades já pedidas, recalculado na criação de
+  // rodada. Serve só para ordenar a vitrine; a verdade continua em OrderItem.
+  orderCount Int     @default(0)
 
   type       Type        @relation(fields: [typeId], references: [id])
   orderItems OrderItem[]
 
   @@index([typeId])
+  // Sustenta o 2º nível da ordenação do catálogo de uma rodada.
+  @@index([typeId, orderCount(sort: Desc)])
 }
 
 model Order {
@@ -190,6 +195,8 @@ model Order {
 
   @@index([userId])
   @@index([eventId])
+  // Histórico do usuário por item: filtra Order por (userId, status) no join.
+  @@index([userId, status])
 }
 
 model OrderItem {

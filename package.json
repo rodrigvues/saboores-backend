@@ -7,7 +7,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "prisma:seed": "tsx prisma/seed.ts",
-    "test:engine": "tsx src/services/pizzaSplit.engine.spec.ts"
+    "test:engine": "tsx src/services/pizzaSplit.engine.spec.ts",
+    "test:ordering": "tsx src/services/itemOrdering.engine.spec.ts",
+    "test:units": "npm run test:engine && npm run test:ordering"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

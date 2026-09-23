@@ -1,4 +1,5 @@
 import type { EventKind, EventStatus, Prisma } from "@prisma/client";
+import { pickMostOrderedIds } from "../services/itemOrdering.engine.js";
 
 type EventTypeRef = {
   id: string;
@@ -45,6 +46,7 @@ type EventDetailsRecord = {
           name: string;
           price: Prisma.Decimal;
           active: boolean;
+          orderCount: number;
         }[];
       })
     | null;
@@ -53,6 +55,17 @@ type EventDetailsRecord = {
     name: string;
     surname: string;
   };
+};
+
+/** Item já ordenado pelo service, com os flags de personalização e destaque. */
+export type OrderedEventItem = {
+  id: string;
+  name: string;
+  price: Prisma.Decimal;
+  active: boolean;
+  orderCount: number;
+  orderedByMe: boolean;
+  isMostOrdered: boolean;
 };
 
 export type EventSummaryDto = {
@@ -114,6 +127,19 @@ export type EventDetailsDto = {
     title: string;
     price: string;
     active: boolean;
+    /**
+     * Este usuário já pediu este item antes (1º nível da ordenação). Só é
+     * calculado em GET /events/:id; POST /events e PATCH /events/:id devolvem
+     * sempre false (ver RN-12).
+     */
+    orderedByMe: boolean;
+    /** Unidades que o grupo já pediu (2º nível). Agregado derivado. */
+    orderCount: number;
+    /**
+     * Está entre os dois itens mais pedidos do catálogo (RN-13). Ao contrário
+     * de `orderedByMe`, não depende de quem pergunta: vale em toda resposta.
+     */
+    isMostOrdered: boolean;
   }[];
   /** Config do racha (PIZZA_SPLIT). Null no STANDARD. */
   pizza: EventPizzaConfig | null;
@@ -137,8 +163,22 @@ export function toEventSummaryDto(
   };
 }
 
-export function toEventDetailsDto(event: EventDetailsRecord): EventDetailsDto {
+export function toEventDetailsDto(
+  event: EventDetailsRecord,
+  orderedItems?: OrderedEventItem[],
+): EventDetailsDto {
   const isPizza = event.kind === "PIZZA_SPLIT";
+  const fallbackItems = event.type?.items ?? [];
+  // `isMostOrdered` não depende de quem pergunta, então vale também no fallback.
+  const fallbackMostOrdered = pickMostOrderedIds(fallbackItems);
+  // Sem lista ordenada (criação, edição, racha): ordem do repositório, sem `orderedByMe`.
+  const items: OrderedEventItem[] =
+    orderedItems ??
+    fallbackItems.map((item) => ({
+      ...item,
+      orderedByMe: false,
+      isMostOrdered: fallbackMostOrdered.has(item.id),
+    }));
 
   return {
     id: event.id,
@@ -169,11 +209,14 @@ export function toEventDetailsDto(event: EventDetailsRecord): EventDetailsDto {
       surname: event.createdByUser.surname,
       fullName: `${event.createdByUser.name} ${event.createdByUser.surname}`,
     },
-    flavors: (event.type?.items ?? []).map((item) => ({
+    flavors: items.map((item) => ({
       id: item.id,
       title: item.name,
       price: item.price.toString(),
       active: item.active,
+      orderedByMe: item.orderedByMe,
+      orderCount: item.orderCount,
+      isMostOrdered: item.isMostOrdered,
     })),
     pizza: isPizza
       ? {

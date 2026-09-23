@@ -1,7 +1,4 @@
-import {
-  toEventDetailsDto,
-  toEventSummaryDto,
-} from "../dtos/event.dto.js";
+import { toEventDetailsDto } from "../dtos/event.dto.js";
 import { eventRepository } from "../repositories/event.repository.js";
 import { typeRepository } from "../repositories/type.repository.js";
 import { orderRepository } from "../repositories/order.repository.js";
@@ -12,6 +9,8 @@ import { env } from "../config/env.js";
 import { eventOrganizerService } from "./eventOrganizer.service.js";
 import { auditService, AuditAction } from "./audit.service.js";
 import { pizzaSplitService } from "./pizzaSplit.service.js";
+import { itemHistoryService } from "./itemHistory.service.js";
+import { sortItemsByUserHistory } from "./itemOrdering.engine.js";
 import { HttpError } from "../utils/http-error.js";
 import type { CreateEventInput, UpdateEventInput } from "../schemas/event.schema.js";
 
@@ -27,14 +26,34 @@ class EventService {
     return pizzaSplitService.attachEstimates(events);
   }
 
-  async getEventById(id: string) {
-    const event = await eventRepository.findById(id);
-
+  async getEventById(params: { id: string; userId: string }) {
+    const event = await eventRepository.findById(params.id);
     if (!event) {
       return null;
     }
 
-    return toEventDetailsDto(event);
+    const type = event.type;
+    // Só a encomenda tem catálogo de Item; racha não paga por essa consulta.
+    if (event.kind !== "STANDARD" || !type || type.items.length === 0) {
+      return toEventDetailsDto(event);
+    }
+
+    let quantities = new Map<string, number>();
+    try {
+      quantities = await itemHistoryService.getUserQuantities({
+        userId: params.userId,
+        typeId: type.id,
+        itemIds: type.items.map((item) => item.id),
+      });
+    } catch {
+      // Ordem de vitrine não derruba a tela: cai para a ordem global (RN-9).
+    }
+
+    const ordered = sortItemsByUserHistory(type.items, quantities).map(
+      ({ item, orderedByMe, isMostOrdered }) => ({ ...item, orderedByMe, isMostOrdered }),
+    );
+
+    return toEventDetailsDto(event, ordered);
   }
 
   /**
@@ -72,6 +91,10 @@ class EventService {
         }
         typeId = type.id;
       }
+
+      // Agregado derivado: recalcula aqui para a leitura do catálogo sair barata.
+      // Com `newType` é no-op (itens nascem em 0), e o custo é desprezível.
+      await typeRepository.recomputeItemOrderCounts(typeId, tx);
 
       const event = await eventRepository.create({
         name: input.name,

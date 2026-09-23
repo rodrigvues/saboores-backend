@@ -15,6 +15,7 @@ import { eventRepository } from "../repositories/event.repository.js";
 import { flavorRepository } from "../repositories/flavor.repository.js";
 import { preferenceQuestionRepository } from "../repositories/preferenceQuestion.repository.js";
 import { rankingService } from "./ranking.service.js";
+import { itemHistoryService } from "./itemHistory.service.js";
 import { pizzaSplitService } from "./pizzaSplit.service.js";
 import { emailService } from "./email.service.js";
 import { auditService, AuditAction } from "./audit.service.js";
@@ -108,6 +109,9 @@ class OrderService {
       serviceFee,
       items: orderItems,
     });
+
+    // O histórico do usuário mudou: a próxima leitura do catálogo já reordena.
+    itemHistoryService.invalidateUser(userId);
 
     return toCreatedOrderDto(order);
   }
@@ -307,6 +311,9 @@ class OrderService {
 
     const cancelledOrder = await orderRepository.cancel(id);
 
+    // Cancelar muda o histórico ativo do dono: reordena na próxima leitura.
+    itemHistoryService.invalidateUser(userId);
+
     return toCancelOrderDto(cancelledOrder);
   }
 
@@ -324,6 +331,9 @@ class OrderService {
     }
 
     const cancelled = await orderRepository.cancel(id);
+
+    // Quem perdeu o pedido é o dono, não o organizador que apertou o botão.
+    itemHistoryService.invalidateUser(order.userId);
 
     if (order.event.kind === "PIZZA_SPLIT" && order.event.costRegisteredAt) {
       await pizzaSplitService.recomputeSplit(order.event.id);

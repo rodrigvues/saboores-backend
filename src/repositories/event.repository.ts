@@ -47,8 +47,9 @@ const detailSelect = {
       description: true,
       items: {
         where: { active: true },
-        orderBy: { name: "asc" },
-        select: { id: true, name: true, price: true, active: true },
+        // Níveis (b) e (c) da ordenação; o nível (a) é aplicado no service.
+        orderBy: [{ orderCount: "desc" }, { name: "asc" }],
+        select: { id: true, name: true, price: true, active: true, orderCount: true },
       },
     },
   },

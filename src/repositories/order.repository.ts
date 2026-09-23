@@ -178,6 +178,28 @@ class OrderRepository {
     }));
   }
 
+  /**
+   * Unidades que UM usuário já pediu de cada item, em 1 consulta. Base do 1º
+   * nível da ordenação do catálogo da rodada.
+   */
+  async aggregateUserItemQuantities(params: { userId: string; itemIds: string[] }) {
+    if (params.itemIds.length === 0) return [];
+
+    const rows = await prisma.orderItem.groupBy({
+      by: ["itemId"],
+      where: {
+        itemId: { in: params.itemIds },
+        order: {
+          userId: params.userId,
+          status: { in: ACTIVE_PARTICIPATION_STATUSES },
+        },
+      },
+      _sum: { quantity: true },
+    });
+
+    return rows.map((row) => ({ itemId: row.itemId, quantity: row._sum.quantity ?? 0 }));
+  }
+
   async findActiveItemsByIds(itemIds: string[]) {
     return prisma.item.findMany({
       where: {
@@ -345,6 +367,7 @@ class OrderRepository {
       where: { id },
       select: {
         id: true,
+        userId: true,
         status: true,
         paymentStatus: true,
         event: {

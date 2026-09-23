@@ -1,5 +1,6 @@
-import type { Prisma, PrismaClient } from "@prisma/client";
+import { Prisma, type PrismaClient } from "@prisma/client"; // Prisma.join é valor
 import { prisma } from "../lib/prisma.js";
+import { ACTIVE_PARTICIPATION_STATUSES } from "../constants/order.js";
 
 type Tx = Prisma.TransactionClient | PrismaClient;
 
@@ -33,6 +34,35 @@ class TypeRepository {
       where: { id },
       select: { id: true, createdByUserId: true, active: true },
     });
+  }
+
+  /**
+   * Recalcula `Item.orderCount` de um tipo a partir da fonte da verdade
+   * (OrderItem). Auto-curativa: zera item sem pedido e conserta desvio antigo.
+   */
+  async recomputeItemOrderCounts(typeId: string, tx?: Tx) {
+    const client = tx ?? prisma;
+    // `status::text` porque o parâmetro chega como texto e o Postgres não
+    // compara enum com texto sem cast explícito.
+    return client.$executeRaw`
+      UPDATE "Item" AS i
+      SET "orderCount" = agg.total
+      FROM (
+        SELECT it."id" AS "itemId",
+               COALESCE(
+                 SUM(oi."quantity") FILTER (
+                   WHERE o."status"::text IN (${Prisma.join(ACTIVE_PARTICIPATION_STATUSES)})
+                 ),
+                 0
+               )::int AS total
+        FROM "Item" it
+        LEFT JOIN "OrderItem" oi ON oi."itemId" = it."id"
+        LEFT JOIN "Order" o ON o."id" = oi."orderId"
+        WHERE it."typeId" = ${typeId}
+        GROUP BY it."id"
+      ) AS agg
+      WHERE agg."itemId" = i."id" AND i."orderCount" IS DISTINCT FROM agg.total
+    `;
   }
 
   /**
